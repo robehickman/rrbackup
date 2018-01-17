@@ -36,8 +36,7 @@ def init(interface, conn, config):
     """ Set up format of the pipeline used for storing meta-data like manifest diffs """
     global meta_pl_format
     meta_pl_format = pipeline.get_default_pipeline_format()
-    meta_pl_format['format'].update({'hash_names' : None,
-                                     'compress'   : None,
+    meta_pl_format['format'].update({'compress'   : None,
                                      'encrypt'    : config['encrypt_opts']})
 
     # Check for previous failed uploads and delete them
@@ -46,20 +45,10 @@ def init(interface, conn, config):
 
 ###################################################################################
 def get_remote_manifest_versions(interface, conn, config):
-    if 'hash_names' in meta_pl_format['format']:
-        fname = hashlib.sha256(config['remote_manifest_diff_file']).hexdigest()
-    else:
-        fname = config['remote_manifest_diff_file']
-
-    return list(interface.list_versions(conn, fname))
+    return list(interface.list_versions(conn, config['remote_manifest_diff_file']))
 
 ###################################################################################
 def get_remote_manifest_diff(interface, conn, config, version_id = None):
-    if 'hash_names' in meta_pl_format['format']:
-        fname = hashlib.sha256(config['remote_manifest_diff_file']).hexdigest()
-    else:
-        fname = config['remote_manifest_diff_file']
-
     i_in = functools.partial(interface.read_file, conn)
     pl_in = pipeline.build_pipeline(i_in, 'in', meta_pl_format['format'])
 
@@ -232,12 +221,7 @@ def backup(interface, conn, config):
         meta2 = pl_out(json.dumps(new_diff), meta, config)
 
         # for some reason have to get the key again to obtain it's time stamp
-        if 'hash_names' in meta_pl_format['format']:
-            fname = hashlib.sha256(config['remote_manifest_diff_file']).hexdigest()
-        else:
-            fname = config['remote_manifest_diff_file']
-
-        k = interface.get_object(conn, fname, version_id = meta2['version_id'])
+        k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
 
         # apply the diff to the local manifest and update it
         file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
@@ -250,10 +234,7 @@ def backup(interface, conn, config):
         # delete the garbage collection log
         time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
 
-        if 'hash_names' in meta_pl_format['format']: fname = hashlib.sha256(config['remote_gc_log_file']).hexdigest()
-        else: fname = config['remote_gc_log_file']
-
-        interface.delete_object(conn, fname)
+        interface.delete_object(conn, config['remote_gc_log_file'])
 
 ###################################################################################
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
@@ -351,9 +332,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
         interface.delete_object(conn, item[0], item[1])
 
     # Finally delete the GC log
-    if 'hash_names' in meta_pl_format['format']: fname = hashlib.sha256(config['remote_gc_log_file']).hexdigest()
-    else: fname = config['remote_gc_log_file']
-    interface.delete_object(conn, fname)
+    interface.delete_object(conn, config['remote_gc_log_file'])
 
     if missing_objects != []: raise ValueError('Missing objects found')
 
@@ -376,11 +355,7 @@ def varify_manifest(interface, conn, config):
 
     #Add the remote manifest diffs themselves, gc log and salt file as they are not garbage
     for k in all_objects.iterkeys():
-        if k[0] == 'salt_file':
-            manifest_referanced_objects[k] = None
-        if k[0] == hashlib.sha256(config['remote_gc_log_file']).hexdigest():
-            manifest_referanced_objects[k] = None
-        if k[0] == hashlib.sha256(config['remote_manifest_diff_file']).hexdigest():
+        if k[0] in ['salt_file', config['remote_gc_log_file'], config['remote_manifest_diff_file']]:
             manifest_referanced_objects[k] = None
 
     # Remove objects referenced in the manifest

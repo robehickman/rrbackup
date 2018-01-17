@@ -17,6 +17,14 @@ access_key: [aws access key]
 secret_key: [aws secret key]
 bucket:     [aws s3 bucket to use]
 
+
+If you wish to obfuscate the names of the Remote manifest diffs and remote GC log, and password salt file this can be done by adding the following to the 'main' section of the configuration:
+
+remote_manifest_diff_file: asdfgjkll
+remote_gc_log_file:        cvbnmoytety
+remote_password_salt_file: qwertyuio
+
+
 Once this file has been created you can run a backup by running 'rrbackup', the supplied bucket must exist. It will check that the bucket exists and that versioning is enabled, and will enable it if not. The following parameters can be used to list or download versions:
 
 [none]                               - run backup from configuration file

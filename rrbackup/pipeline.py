@@ -3,7 +3,7 @@ When data is uploaded or downloaded an arbitrary set of transformations
 may be applied to the data in transit including encryption. This file
 assembles pipelines to apply these transformations depending on configuration.
 """
-import crypto, compress, hash_names, pysodium, functools, json, re
+import crypto, compress, functools, json, re
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def preprocess_config(interface, conn, config):
@@ -86,18 +86,12 @@ def build_pipeline(interface, direction, pipeline_format):
         if 'compress' in pipeline_format:
             pipeline = functools.partial(compress.compress, pipeline)
 
-        if 'hash_names' in pipeline_format:
-            pipeline = functools.partial(hash_names.hash, pipeline)
-
     elif direction == 'in':
         if 'encrypt' in pipeline_format:
             pipeline = functools.partial(crypto.decrypt, pipeline)
 
         if 'compress' in pipeline_format:
             pipeline = functools.partial(compress.decompress, pipeline)
-
-        if 'hash_names' in pipeline_format:
-            pipeline = functools.partial(hash_names.restore, pipeline)
     else:
         raise ValueError('Unknown pipeline direction')
 
@@ -110,9 +104,6 @@ def build_pipeline_streaming(interface, direction, pipeline_format, config):
     pipeline = interface
 
     if direction == 'out':
-        if 'hash_names' in pipeline_format:
-            pass
-
         if 'compress' in pipeline_format:
             pass
 
@@ -124,9 +115,6 @@ def build_pipeline_streaming(interface, direction, pipeline_format, config):
             pipeline = crypto.streaming_decrypt(pipeline)
 
         if 'compress' in pipeline_format:
-            pass
-
-        if 'hash_names' in pipeline_format:
             pass
 
     # ----
