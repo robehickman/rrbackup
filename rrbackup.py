@@ -35,9 +35,6 @@ else:
 
     core.init(interface, conn, config)
 
-    #core.garbage_collect(interface, conn, config, mode='full')
-    #quit()
-
     #++++++++++++++++++++++++
     if len(sys.argv) == 1:
         print 'Running backup'

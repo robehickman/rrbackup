@@ -161,14 +161,13 @@ def backup(interface, conn, config):
 
         # For garbage collection of failed uploads, log new and changed items to s3
         gc_changes = [change for change in diff if change['status'] == 'new' or change['status'] == 'changed']
-
         meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         gc_log = pl_out(json.dumps(gc_changes), meta, config)
 
         #--
         new_diff = []
         for change in diff:
-            if change['status'] == 'new' or change['status'] == 'changed':
+            if change['status'] in ['new', 'changed']:
                 print colored('Uploading: ' + change['path'], 'green') 
 
                 fspath = sfs.cpjoin(config['base_path'], change['path'])
@@ -177,9 +176,16 @@ def backup(interface, conn, config):
                 remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
                 if os.stat(fspath).st_size == 0: print colored('Warning, skipping empty file: ' + change['path'], 'red'); continue
 
-                upload = interface.streaming_upload(conn, remote_path, config['chunk_size'])
-                pl     = pipeline.build_pipeline_streaming(upload, 'out', ['encrypt'], config)
-                upload.begin()
+                #-----
+                pl_format = pipeline.get_default_pipeline_format()
+                pl_format['chunk_size'] = config['chunk_size']
+                pl_format['format'].update({'encrypt'    : config['encrypt_opts']})
+
+                #-----
+                upload = interface.streaming_upload()
+                pl     = pipeline.build_pipeline_streaming(upload, 'out')
+                pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
+                upload.begin(conn, remote_path, )
                 with open(fspath, 'rb') as fle:
                     while True:
                         chunk = fle.read(config['chunk_size'])
@@ -245,8 +251,10 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
         path_hash = hashlib.sha256(fle['real_path']).hexdigest()
         remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
 
-        download = interface.streaming_download(conn, remote_path2, fle['version_id'], config['chunk_size'])
-        pl     = pipeline.build_pipeline_streaming(download, 'in', ['encrypt'], config)
+        download          = interface.streaming_download()
+        header, pl_format = download.begin(conn, remote_path, fle['version_id'])
+        pl                = pipeline.build_pipeline_streaming(download, 'in')
+        pl.pass_config(config, header)
 
         dest = sfs.cpjoin(target_directory, fle['path'])
         sfs.make_dirs_if_dont_exist(dest)

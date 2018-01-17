@@ -32,6 +32,9 @@ def serialise_pipeline_format(pl_format):
 
     to_json = {'V' : str(pl_format['version'])}
 
+    if'chunk_size' in  pl_format:
+        to_json['S'] = str(pl_format['chunk_size'])
+
     for i in pl_format['format']:
         if not (type(i) == unicode or type(i) == str):
             raise TypeError('Format specifiers must be strings')
@@ -48,9 +51,10 @@ def parse_pipeline_format(serialised_pl_format):
     if 'V' not in raw: raise ValueError('Version not found')
     version = raw.pop('V')
     if not re.compile(r'^[0-9]+$').match(version): raise ValueError('Invalid version number')
+    pl_format = {'version' : int(version), 'format'  : {}}
 
-    pl_format = {'version' : int(version),
-                 'format'  : {}}
+    try: pl_format['chunk_size'] = int(raw.pop('S'))
+    except: pass
 
     inv_map = {v: k for k, v in serialise_mapper.iteritems()}
     for k, v in raw.iteritems():
@@ -79,26 +83,25 @@ def build_pipeline(interface, direction):
     elif direction == 'in':
         pipeline = functools.partial(crypto.decrypt, pipeline)
         pipeline = functools.partial(compress.decompress, pipeline)
+
     else:
         raise ValueError('Unknown pipeline direction')
 
     return pipeline
 
 # -----------------
-def build_pipeline_streaming(interface, direction, pipeline_format, config):
+def build_pipeline_streaming(interface, direction):
     """ Build a chunked (streaming) pipeline of transformers """
-
     pipeline = interface
 
     if direction == 'out':
-        if 'encrypt' in pipeline_format:
-            pipeline = crypto.streaming_encrypt(pipeline)
+        pipeline = crypto.streaming_encrypt(pipeline)
 
     elif direction == 'in':
-        if 'encrypt' in pipeline_format:
-            pipeline = crypto.streaming_decrypt(pipeline)
+        pipeline = crypto.streaming_decrypt(pipeline)
 
-    # ----
-    pipeline.pass_config(config)
+    else:
+        raise ValueError('Unknown pipeline direction')
+
     return pipeline
 

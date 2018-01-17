@@ -67,3 +67,30 @@ class test_pipeline(unittest.TestCase):
         data_out, meta3 = pl_in(meta2, config)
 
         self.assertEqual(data_in, data_out)
+
+    def test_streaming_pipeline(self):
+        return
+
+        upload = interface.streaming_upload(conn, remote_path, config['chunk_size'])
+        pl     = pipeline.build_pipeline_streaming(upload, 'out', ['encrypt'], config)
+        upload.begin()
+        with open(fspath, 'rb') as fle:
+            while True:
+                chunk = fle.read(config['chunk_size'])
+                if chunk == "": break
+                pl.next_chunk(chunk)
+
+        #-----------
+        download = interface.streaming_download(conn, remote_path2, fle['version_id'], config['chunk_size'])
+        pl     = pipeline.build_pipeline_streaming(download, 'in', ['encrypt'], config)
+
+        dest = sfs.cpjoin(target_directory, fle['path'])
+        sfs.make_dirs_if_dont_exist(dest)
+        with open(dest, 'wb') as fle:
+            while True:
+                res = pl.next_chunk()
+                if res == None: break
+                fle.write(res)
+
+
+

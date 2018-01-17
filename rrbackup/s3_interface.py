@@ -1,4 +1,4 @@
-import boto3, struct, pprint
+import boto3, struct, pprint, pipeline
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def connect(config):
@@ -120,20 +120,17 @@ def read_file(conn, meta, config):
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 class streaming_upload:
     """ Streaming (chunked) object upload """
+    def pass_config(self, config, header):
+        self.header = header 
 
-    #TODO chunk size should be stored in a header of the object, so the object can still be read without manifest
-    #Header also needs to store what pipeline components where used, header also needs to be
-    #passed upstream mostly so it can be included in additional data for verification
-
-    def __init__(self, conn, key, chunk_size):
+    def begin(self, conn, key):
         self.client = conn['client']; self.bucket = conn['bucket']; self.key = key 
-        self.header = struct.pack("!Iq", 0, chunk_size) 
-
-    def begin(self):
         self.mpu = self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key)
         self.part_id = 1; self.part_info = {'Parts': []}; self.uid = self.mpu['UploadId'];
 
     def next_chunk(self, chunk):
+        if self.part_id == 1: chunk = struct.pack('!I', len(self.header)) + self.header + chunk
+
         part = self.client.upload_part(Bucket=self.bucket, Key=self.key,
             PartNumber=self.part_id, UploadId=self.uid, Body=chunk)
         self.part_info['Parts'].append({'PartNumber': self.part_id, 'ETag': part['ETag']})
@@ -161,19 +158,16 @@ def delete_failed_uploads(conn):
 class streaming_download:
     """ Streaming (chunked) object download """
 
-    def __init__(self, conn, key, version_id, chunk_size):
-        self.conn = conn; self.key = key; self.version_id = version_id
-        response = conn['client'].head_object(Bucket=conn['bucket'], Key=key)
-        self.size = response['ContentLength']
-        self.amount_read = 0; self.chunk_size = chunk_size - 1
+    def begin(self, conn, key, version_id):
+        self.res = get_object(conn, key, version_id = version_id)
+        header_length = struct.unpack('!I', self.res['body'].read(4))[0]
+        header = self.res['body'].read(header_length)
+
+        pl_format = pipeline.parse_pipeline_format(header)
+        self.chunk_size = pl_format['chunk_size']
+        return header, pl_format
 
     def next_chunk(self, add_bytes = 0):
-        if self.amount_read > self.size: return None
-        cur_chunk_size = self.chunk_size + add_bytes
-        if self.amount_read + cur_chunk_size > self.size: cur_chunk_size = self.size - self.amount_read
-        resp = self.conn['client'].get_object(Bucket=self.conn['bucket'], Key=self.key,
-                                              VersionId=self.version_id, Range='bytes={}-{}'.format(
-                                              self.amount_read, self.amount_read + cur_chunk_size))
-        self.amount_read += cur_chunk_size + 1
-        return resp['Body'].read()
+        res = self.res['body'].read(self.chunk_size + add_bytes)
+        return res if res != '' else None
 

@@ -72,39 +72,51 @@ def decrypt(child, meta, config):
 class streaming_encrypt:
     def __init__(self, child):
         self.child = child; self.chunk_id = 0
-        self.state = self.header = None
+        self.state = self.header = None; self.enable = False
 
-    def pass_config(self, config):
-        crypt_key = config['stream_crypt_key']
-        self.state, self.header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
+    def pass_config(self, config, pipeline_header):
+        if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
+            self.enable = True; crypt_key = config['stream_crypt_key'];
+            self.state, self.header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
+            self.child.pass_config(config, pipeline_header)
+            self.pipeline_header = pipeline_header
 
     def next_chunk(self, chunk):
-        if type(chunk) != str: raise TypeError('Data must be a byte string')
-        res = pysodium.crypto_secretstream_xchacha20poly1305_push(self.state, chunk, None, 0)
-        if self.chunk_id == 0: res = self.header + res
-        self.child.next_chunk(res); self.chunk_id += 1
+        if self.enable == True:
+            if type(chunk) != str: raise TypeError('Data must be a byte string')
+            res = pysodium.crypto_secretstream_xchacha20poly1305_push(self.state, chunk, self.pipeline_header, 0)
+            if self.chunk_id == 0: res = self.header + res
+            chunk = res
+        self.child.next_chunk(chunk); self.chunk_id += 1
 
 class streaming_decrypt:
     def __init__(self, child):
-        self.child = child; self.crypt_key = None; self.chunk_id = 0; self.tag = None
+        self.child = child; self.crypt_key = None; self.chunk_id = 0;
+        self.tag = None ; self.enable = False
 
-    def pass_config(self, config):
+    def pass_config(self, config, pipeline_header):
+        self.pipeline_header = pipeline_header
         self.crypt_key = config['stream_crypt_key']
+        if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
+            self.enable = True
 
     def next_chunk(self):
-        if self.chunk_id == 0:
-            chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES
-                                          + pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
-            if type(chunk) != str: raise TypeError('Data must be a byte string')
-            header = chunk[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
-            chunk = chunk[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
-            self.state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, self.crypt_key)
-        else:
-            chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES)
-            if chunk != None and type(chunk) != str: raise TypeError('Data must be a byte string')
+        if self.enable == True:
+            if self.chunk_id == 0:
+                chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES
+                                              + pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
+                if type(chunk) != str: raise TypeError('Data must be a byte string')
+                header = chunk[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
+                chunk = chunk[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
+                self.state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, self.crypt_key)
+            else:
+                chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES)
+                if chunk != None and type(chunk) != str: raise TypeError('Data must be a byte string')
 
-        if chunk == None: return None
-        msg, self.tag = pysodium.crypto_secretstream_xchacha20poly1305_pull(self.state, chunk, None)
-        self.chunk_id += 1
-        return msg
+            if chunk == None: return None
+            msg, self.tag = pysodium.crypto_secretstream_xchacha20poly1305_pull(self.state, chunk, self.pipeline_header)
+            self.chunk_id += 1
+            return msg
+        else:
+            return self.child.next_chunk()
 
