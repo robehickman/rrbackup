@@ -8,9 +8,6 @@ from pprint import pprint
 import rrbackup.pipeline as pipeline
 import functools, hashlib, time, datetime
 
-# TODO get rid of name hashing for meta objects like manifest diffs, gc log. If we want to
-# obfuscate these, the obfuscated names can be put in the conf file directly
-
 ###################################################################################
 def default_config():
     """ The default configuration structure. """
