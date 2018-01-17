@@ -5,15 +5,21 @@ import bz2, pipeline
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def compress(child, data, meta, config):
     pl_format = pipeline.parse_pipeline_format(meta['header'])
-    pl_format['format']['compress'] = {'A' : 'bz2'}
+    if 'compress' in pl_format['format']:
+        pl_format['format']['compress'] = {'A' : 'bz2'}
+        data = bz2.compress(data)
+
     meta['header'] = pipeline.serialise_pipeline_format(pl_format)
-    final = bz2.compress(data)
-    return child(final, meta, config)
+    return child(data, meta, config)
 
 def decompress(child, meta, config):
     data, meta2 = child(meta, config)
-    final = bz2.decompress(data)
-    return final, meta2
+
+    pl_format = pipeline.parse_pipeline_format(meta2['header'])
+    if 'compress' in pl_format['format']:
+        data = bz2.decompress(data)
+
+    return data, meta2
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 # Streaming (chunked) compression and decompression

@@ -28,13 +28,17 @@ def new_manifest():
              'files'              : []}
 
 ###################################################################################
-meta_pl_format = None
+meta_pl_format = pl_in = pl_out = None
 def init(interface, conn, config):
     """ Set up format of the pipeline used for storing meta-data like manifest diffs """
-    global meta_pl_format
+    global meta_pl_format, pl_in, pl_out
     meta_pl_format = pipeline.get_default_pipeline_format()
     meta_pl_format['format'].update({'compress'   : None,
                                      'encrypt'    : config['encrypt_opts']})
+
+    # ----
+    pl_in  = pipeline.build_pipeline(functools.partial(interface.read_file, conn), 'in')
+    pl_out = pipeline.build_pipeline(functools.partial(interface.write_file, conn), 'out')
 
     # Check for previous failed uploads and delete them
     interface.delete_failed_uploads(conn)
@@ -46,9 +50,6 @@ def get_remote_manifest_versions(interface, conn, config):
 
 ###################################################################################
 def get_remote_manifest_diff(interface, conn, config, version_id = None):
-    i_in = functools.partial(interface.read_file, conn)
-    pl_in = pipeline.build_pipeline(i_in, 'in', meta_pl_format['format'])
-
     meta = {'path'       : config['remote_manifest_diff_file'],
             'version_id' : version_id,
             'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
@@ -61,14 +62,8 @@ def get_remote_manifest_diff(interface, conn, config, version_id = None):
 def get_remote_manifest_diffs(interface, conn, config):
     """ Get and sort the progression of change differences from the remote """
 
-    versions = get_remote_manifest_versions(interface, conn, config)
-
-    i_in = functools.partial(interface.read_file, conn)
-    pl_in = pipeline.build_pipeline(i_in, 'in', meta_pl_format['format'])
-    # TODO instead of building pipeline every time, always have the whole pipeline loaded and have if blocks in each section of the pipeline itself to see if it's needs to be applied
-
     diffs = []
-    for v in versions:
+    for v in get_remote_manifest_versions(interface, conn, config):
         meta = {'path'       : config['remote_manifest_diff_file'],
                 'version_id' : v['VersionId'],
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
@@ -167,8 +162,6 @@ def backup(interface, conn, config):
         # For garbage collection of failed uploads, log new and changed items to s3
         gc_changes = [change for change in diff if change['status'] == 'new' or change['status'] == 'changed']
 
-        i_out = functools.partial(interface.write_file, conn)
-        pl_out = pipeline.build_pipeline(i_out, 'out', meta_pl_format['format'])
         meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         gc_log = pl_out(json.dumps(gc_changes), meta, config)
 
@@ -212,8 +205,6 @@ def backup(interface, conn, config):
                 new_diff.append(change)
 
         # upload the diff
-        i_out = functools.partial(interface.write_file, conn)
-        pl_out = pipeline.build_pipeline(i_out, 'out', meta_pl_format['format'])
         meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         meta2 = pl_out(json.dumps(new_diff), meta, config)
 
@@ -282,9 +273,6 @@ def garbage_collect(interface, conn, config, mode='simple'):
     missing_objects = garbage_objects = []
 
     if mode == 'simple':
-        i_in = functools.partial(interface.read_file, conn)
-        pl_in = pipeline.build_pipeline(i_in, 'in', meta_pl_format['format'])
-
         meta = {'path'       : config['remote_gc_log_file'],
                 'version_id' : None,
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}

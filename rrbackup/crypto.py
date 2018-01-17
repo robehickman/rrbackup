@@ -42,25 +42,28 @@ def encrypt(child, data, meta, config):
     if type(data) != str: raise TypeError('Data must be a byte string')
 
     pl_format = pipeline.parse_pipeline_format(meta['header'])
-    pl_format['format']['encrypt']['E'] = 'sodssxcc20'
-    meta['header'] = pipeline.serialise_pipeline_format(pl_format)
+    if 'encrypt' in pl_format['format']:
+        pl_format['format']['encrypt']['E'] = 'sodssxcc20'
+        meta['header'] = pipeline.serialise_pipeline_format(pl_format)
+        crypt_key = config['stream_crypt_key']; ad_data = meta['header']
+        state, header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
+        cyphertext = pysodium.crypto_secretstream_xchacha20poly1305_push(state, data, ad_data, 0)
+        data = header + cyphertext
 
-    crypt_key = config['stream_crypt_key']; ad_data = meta['header']
-    state, header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
-    cyphertext = pysodium.crypto_secretstream_xchacha20poly1305_push(state, data, ad_data, 0)
-    final = header + cyphertext
-    return child(final, meta, config)
+    return child(data, meta, config)
 
 def decrypt(child, meta, config):
     data, meta2 = child(meta, config)
     if type(data) != str: raise TypeError('Data must be a byte string')
 
-    crypt_key = config['stream_crypt_key']; ad_data = meta['header']
-    header = data[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
-    chunk = data[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
-    state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, crypt_key)
-    final, tag = pysodium.crypto_secretstream_xchacha20poly1305_pull(state, chunk, ad_data)
-    return final, meta2
+    pl_format = pipeline.parse_pipeline_format(meta2['header'])
+    if 'encrypt' in pl_format['format']:
+        crypt_key = config['stream_crypt_key']; ad_data = meta2['header']
+        header = data[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
+        chunk = data[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
+        state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, crypt_key)
+        data, tag = pysodium.crypto_secretstream_xchacha20poly1305_pull(state, chunk, ad_data)
+    return data, meta2
 
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==

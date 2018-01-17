@@ -26,6 +26,7 @@ serialise_mapper = {'encrypt'    : 'E'.encode('utf8'),
 def serialise_pipeline_format(pl_format):
     """ For a given version the output of this MUST NOT CHANGE as it
     is used as additional data for validation"""
+    if type(pl_format) != dict: raise TypeError('pipeline format must be a dict')
     if not isinstance(pl_format['version'], int):
         raise TypeError('Version must be an integer')
 
@@ -61,37 +62,23 @@ def parse_pipeline_format(serialised_pl_format):
 
 #================================================================
 #================================================================
-def build_pipeline(interface, direction, pipeline_format):
+def build_pipeline(interface, direction):
     """ Build a flat pipeline of transformers,
 
         Direction specifies whether processing data heading to storage or returning,
         it has two valid options: out or in.
-
-        Pipeline_format is the processing options which should be enabled:
-        'hash_names', 'compress' and 'encrypt'. If direction is out, they
-        are applied to the content, if in they are removed.
-
-        Config is a dict of currently only 'box_crypt_key', the encryption key.
      """
-
-    if type(pipeline_format) != dict: raise TypeError('pipeline format must be a dict')
 
     pipeline = interface
 
     if direction == 'out':
         # Remember that these are executed in the reverse order than they are listed
-        if 'encrypt' in pipeline_format:
-            pipeline = functools.partial(crypto.encrypt, pipeline)
-
-        if 'compress' in pipeline_format:
-            pipeline = functools.partial(compress.compress, pipeline)
+        pipeline = functools.partial(crypto.encrypt, pipeline)
+        pipeline = functools.partial(compress.compress, pipeline)
 
     elif direction == 'in':
-        if 'encrypt' in pipeline_format:
-            pipeline = functools.partial(crypto.decrypt, pipeline)
-
-        if 'compress' in pipeline_format:
-            pipeline = functools.partial(compress.decompress, pipeline)
+        pipeline = functools.partial(crypto.decrypt, pipeline)
+        pipeline = functools.partial(compress.decompress, pipeline)
     else:
         raise ValueError('Unknown pipeline direction')
 
@@ -104,18 +91,12 @@ def build_pipeline_streaming(interface, direction, pipeline_format, config):
     pipeline = interface
 
     if direction == 'out':
-        if 'compress' in pipeline_format:
-            pass
-
         if 'encrypt' in pipeline_format:
             pipeline = crypto.streaming_encrypt(pipeline)
 
     elif direction == 'in':
         if 'encrypt' in pipeline_format:
             pipeline = crypto.streaming_decrypt(pipeline)
-
-        if 'compress' in pipeline_format:
-            pass
 
     # ----
     pipeline.pass_config(config)
