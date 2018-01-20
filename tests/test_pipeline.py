@@ -6,11 +6,11 @@ def read_helper(meta, config): return meta['data'], meta
 
 class test_pipeline(unittest.TestCase):
     def test_simple_pipeline(self):
-        config = {'encrypt_opts' : {}, 'stream_crypt_key' : pysodium.crypto_secretstream_xchacha20poly1305_keygen()}
+        config = {'crypto' : {'encrypt_opts' : {}, 'stream_crypt_key' : pysodium.crypto_secretstream_xchacha20poly1305_keygen()}}
 
         meta_pl_format = pipeline.get_default_pipeline_format()
         meta_pl_format['format'].update({'compress'   : None,
-                                         'encrypt'    : config['encrypt_opts']})
+                                         'encrypt'    : config['crypto']['encrypt_opts']})
         data_in = b'some data input'
 
         #-------
@@ -25,7 +25,6 @@ class test_pipeline(unittest.TestCase):
         data_out, meta3 = pl_in(meta2, config)
 
         self.assertEqual(data_in, data_out)
-
 
     def test_simple_pipeline_compress(self):
         config = {}
@@ -49,10 +48,10 @@ class test_pipeline(unittest.TestCase):
 
 
     def test_simple_pipeline_encrypt(self):
-        config = {'encrypt_opts' : {}, 'stream_crypt_key' : pysodium.crypto_secretstream_xchacha20poly1305_keygen()}
+        config = {'crypto' : {'encrypt_opts' : {}, 'stream_crypt_key' : pysodium.crypto_secretstream_xchacha20poly1305_keygen()}}
 
         meta_pl_format = pipeline.get_default_pipeline_format()
-        meta_pl_format['format'].update({'encrypt'    : config['encrypt_opts']})
+        meta_pl_format['format'].update({'encrypt'    : config['crypto']['encrypt_opts']})
         data_in = b'some data input'
 
         #-------
@@ -89,6 +88,36 @@ class test_pipeline(unittest.TestCase):
         with open(dest, 'wb') as fle:
             while True:
                 res = pl.next_chunk()
+                if res == None: break
+                fle.write(res)
+
+    def test_streaming_pipeline_org(self):
+        return #disabled for the time being
+        crypt_key = pysodium.crypto_secretstream_xchacha20poly1305_keygen()
+        print 'upload...'
+        upload = streaming_upload(client, bucket, key)
+        crpt = encrypter(upload, crypt_key)
+
+        upload.begin()
+
+        pl_out = pipeline.build_pipeline_streaming('out', pl_format, config)
+
+        with open('', 'rb') as fle:
+            while True:
+                chunk = fle.read(chunk_size)
+                if chunk == "": break
+                crpt.next_chunk(chunk)
+
+        res = upload.finish()
+
+        #---------------
+        print 'download...'
+        download = streaming_download(client, bucket, key, chunk_size)
+        dcrpt = decrypter(download, crypt_key)
+
+        with open('', 'wb') as fle:
+            while True:
+                res = dcrpt.next_chunk()
                 if res == None: break
                 fle.write(res)
 

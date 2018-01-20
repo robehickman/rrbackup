@@ -1,6 +1,6 @@
-from fsutil import *
+from rrbackup.fsutil import *
 from unittest import TestCase
-import subprocess
+import subprocess, os
 
 def move_helper(status, path, hsh):
     return {'status'   : status,
@@ -29,7 +29,7 @@ class TestCommon(TestCase):
     def test_hash_file(self):
         """ Test that file hash returns the correct result. """
 
-        file_path = 'test_file'
+        file_path = 'HASH_TEST_FILE'
         file_put_contents(file_path, 'some file contents')
 
         p1 = subprocess.Popen (['sha256sum', file_path], stdout=subprocess.PIPE)
@@ -38,6 +38,8 @@ class TestCommon(TestCase):
 
         self.assertEqual(result1, result2,
             msg = 'Hashes are not the same')
+
+        os.remove(file_path)
 
     def test_find_manifest_changes(self):
         state_1 = []
