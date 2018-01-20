@@ -2,11 +2,11 @@ from boto.s3.connection import S3Connection
 from copy import deepcopy
 from boto.s3.key import Key
 from termcolor import colored
-import shttpfs.common as sfs
+import fsutil as sfs
 import boto.utils, os, json
 from pprint import pprint
 import rrbackup.pipeline as pipeline
-import functools, hashlib, time, datetime
+import functools, hashlib, time, datetime, fnmatch
 
 ###################################################################################
 def default_config():
@@ -16,7 +16,13 @@ def default_config():
              'remote_gc_log_file'        : 'gc_log',         # Location of the remote garbage collection log
              'remote_base_path'          : 'files',          # The directory used to store files on S3
              'local_manifest_file'       : 'manifest',       # Name of the local manifest file
-             'chunk_size'                : 1048576 * 5}      # minimum chunk size is 5MB on s3, 1mb = 1048576
+             'chunk_size'                : 1048576 * 5,      # minimum chunk size is 5MB on s3, 1mb = 1048576
+             'read_only'                 : False,            # can we write to the remote?
+             'allow_delete_versions'     : True,             # Should remote versions be deletable (used by GC)
+             'meta_pipeline'             : [],               # pipeline applied to meta files like manifest diffs
+             'file_pipeline'             : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
+             'ignore_files'              : [],               # files to ignore
+             'skip_delete'               : []}               # files which should never be deleted from manifest
 
 ###################################################################################
 def new_manifest():
@@ -33,8 +39,8 @@ def init(interface, conn, config):
     """ Set up format of the pipeline used for storing meta-data like manifest diffs """
     global meta_pl_format, pl_in, pl_out
     meta_pl_format = pipeline.get_default_pipeline_format()
-    meta_pl_format['format'].update({'compress'   : None,
-                                     'encrypt'    : config['encrypt_opts']})
+    meta_pl_format['format'].update({i : None for i in config['meta_pipeline']})
+    if 'encrypt' in meta_pl_format['format']: meta_pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
 
     # ----
     pl_in  = pipeline.build_pipeline(functools.partial(interface.read_file, conn), 'in')
@@ -110,7 +116,7 @@ def get_manifest(interface, conn, config):
         file_manifest = json.loads(sfs.file_get_contents(config['local_manifest_file']))
 
         try: latest = get_remote_manifest_diff(interface, conn, config)
-        except Exception: raise ValueError('Local manifest exists but remote missing, suspect tampering')
+        except ValueError: raise# ValueError('Local manifest exists but remote missing, suspect tampering')
 
         if file_manifest['latest_remote_diff']['last_modified'] != latest['last_modified'].isoformat():
             # If the client where to crash between writing the remote diff and local manifest the remote manifest
@@ -147,16 +153,20 @@ def get_manifest(interface, conn, config):
 def backup(interface, conn, config):
     """ To store data, diff file changes, upload changes and store the diff """
 
-    if 'read_only' in config: raise Exception('read only')
+    if 'read_only' in config and config['read_only'] == True: raise Exception('read only')
 
     file_manifest = get_manifest(interface, conn, config)
     current_state = sfs.get_file_list(config['base_path'])
-    diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
 
+    # filter ignore files
+    current_state = sfs.filter_file_list(current_state, config['ignore_files'])
+
+    #Find and process changes
+    diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
     if diff !={}:
         diff = [change for p, change in diff.iteritems()]
         diff = sfs.hash_new_files(diff, config['base_path'])
-        diff = sfs.detect_moved_files(file_manifest, diff)
+        diff = sfs.detect_moved_files(file_manifest, diff) #TODO move detection seems to be broken
         diff = sorted(diff,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
 
         # For garbage collection of failed uploads, log new and changed items to s3
@@ -172,19 +182,27 @@ def backup(interface, conn, config):
 
                 fspath = sfs.cpjoin(config['base_path'], change['path'])
 
-                path_hash = hashlib.sha256(change['path']).hexdigest()
+                #Determine the correct pipeline format to use for this file from the configuration
+                try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
+                except StopIteration: raise('No pipeline format matches ' + change['path'])
+
+                # Get remote file name and implementation of hash path
+                path_hash = hashlib.sha256(change['path']).hexdigest() if 'hash_names' in matched_plf else change['path']
                 remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
                 if os.stat(fspath).st_size == 0: print colored('Warning, skipping empty file: ' + change['path'], 'red'); continue
 
-                #-----
+                #----
                 pl_format = pipeline.get_default_pipeline_format()
                 pl_format['chunk_size'] = config['chunk_size']
-                pl_format['format'].update({'encrypt'    : config['encrypt_opts']})
+                pl_format['format'] = {i : None for i in matched_plf}
+                if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
 
                 #-----
                 upload = interface.streaming_upload()
                 pl     = pipeline.build_pipeline_streaming(upload, 'out')
+
                 pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
+
                 upload.begin(conn, remote_path, )
                 with open(fspath, 'rb') as fle:
                     while True:
@@ -194,8 +212,9 @@ def backup(interface, conn, config):
 
                 res = upload.finish()
 
-                change['real_path'] = change['path']
-                change['version_id'] = res['VersionId']
+                change['name_hashed'] = 'hash_names' in matched_plf
+                change['real_path']   = change['path']
+                change['version_id']  = res['VersionId']
                 new_diff.append(change)
 
             elif change['status'] == 'moved':
@@ -205,12 +224,17 @@ def backup(interface, conn, config):
                 new_diff.append(change)
 
             elif change['status'] == 'deleted':
+                # skip delete feature
+                if sfs.filter_helper(change['path'], config['skip_delete']): continue
+
                 # Delete only removes the file from the manifest, the object needs to remain as it
                 # is referenced by prior versions
                 print colored('Deleting: ' + change['path'], 'red') 
                 new_diff.append(change)
 
         # upload the diff
+        #pprint(new_diff)
+        #quit()
         meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         meta2 = pl_out(json.dumps(new_diff), meta, config)
 
@@ -248,7 +272,7 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
     for fle in file_manifest['files']:
         print 'Downloading: ' + fle['path']
 
-        path_hash = hashlib.sha256(fle['real_path']).hexdigest()
+        path_hash = hashlib.sha256(fle['real_path']).hexdigest() if fle['name_hashed'] == True else fle['real_path']
         remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
 
         download          = interface.streaming_download()
@@ -277,6 +301,8 @@ def garbage_collect(interface, conn, config, mode='simple'):
     full mode can be very slow and would only be needed under exceptional circumstances probably
     caused by misuse of the application.
     """
+
+    if 'read_only' in config and config['read_only'] == True: return
 
     missing_objects = garbage_objects = []
 
@@ -318,11 +344,26 @@ def garbage_collect(interface, conn, config, mode='simple'):
     #---------------
     else: raise ValueError('Invalid GC mode')
 
-    # TODO, if have delete permissions, delete the garbage versions of the objects,
-    # else concat tham onto the 'to delete' log.
-    for item in garbage_objects:
-        print 'deleting garbage object: ' + str(item)
-        interface.delete_object(conn, item[0], item[1])
+    # If have delete permissions, delete the garbage versions of the objects,
+    # else append them onto the garbage object log.
+    if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
+        for item in garbage_objects:
+            print 'deleting garbage object: ' + str(item)
+            interface.delete_object(conn, item[0], item[1])
+    else:
+        meta = {'path'       : config['garbage_objects_log_file'],
+                'version_id' : None,
+                'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
+        try:
+            data, gc_log_meta = pl_in(meta, config)
+            log = json.loads(data)
+        except ValueError:
+            log = []
+
+        log.append(garbage_objects)
+        meta = {'path' : config['garbage_objects_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+        meta2 = pl_out(json.dumps(log), meta, config)
+
 
     # Finally delete the GC log
     interface.delete_object(conn, config['remote_gc_log_file'])

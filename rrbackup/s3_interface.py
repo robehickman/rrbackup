@@ -1,5 +1,12 @@
 import boto3, struct, pprint, pipeline
 
+def add_default_config(config):
+    config["s3"] = { "access_key": "",
+                     "secret_key": "",
+                     "bucket":     "" }
+    return config
+
+
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def connect(config):
     """ Connect to S3 and ensure that versioning is enabled """

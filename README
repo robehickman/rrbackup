@@ -33,3 +33,24 @@ list_files    [version_id]           - List all files in a version
 list_changes  [version_id]           - List what has changed in the named version
 download      [version id]  [target] - Download a file or files from the backup, creates
                                        target directory if it does not exist
+
+
+--- Meta pipeline formats
+
+--- Backup pipeline formats
+
+Pipeline formats can be applied differently
+
+Note that the sort order of unix wildcards listed matters, these are evaluated top to bottom against each file so must be least to most specific. For example placing a match all wildcard '*' first will always skip following filters.
+
+Note that filters must always start with a slash '/'
+
+--- Ignore files
+
+Files listed here will not be backed up, this can be useful for cache data which can be recreated. 
+
+If a file is added to the ignore list after it has been backed up previously, the next time backup is run it will be removed from the latest and will not appear in following backups.
+
+---- Skip delete
+
+Sometimes you may want to add a file to a backup, keeping it in the backup but deleting it from the local file system to save space. An example being database snapshots. Such files should be added to 'ignore delete', they will be added when they appear in the filesystem but will not be deleted from the backup when removed.

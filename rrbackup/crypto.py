@@ -1,27 +1,30 @@
 import pysodium, binascii, base64, pipeline, pprint
 
-def default_config():
+def add_default_config(config):
     """ The default configuration structure. """
-    return {'remote_password_salt_file'  : 'salt_file',  # Remote file used to store the password salt
-            'crypt_password'             : None }
+    config['crypto'] =  {'remote_password_salt_file'  : 'salt_file',  # Remote file used to store the password salt
+                         'crypt_password'             : None }
+    return config
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def preprocess_config(interface, conn, config):
-    if config['crypt_password'] == None or config['crypt_password'] == '':
+    if config['crypto']['crypt_password'] == None or config['crypto']['crypt_password'] == '':
         raise ValueError('Password has not been set')
+
+    config['crypto']['crypt_password'] = config['crypto']['crypt_password'].encode('utf8') #must be a byte array
 
     # attempt to get salt from remote, if does not exist
     # randomly generate a salt and store it on the remote
     try:
-        res = interface.get_object(conn, config['remote_password_salt_file'])
+        res = interface.get_object(conn, config['crypto']['remote_password_salt_file'])
         salt = binascii.unhexlify(res['body'].read())
 
     except ValueError:
         salt =pysodium.randombytes(pysodium.crypto_pwhash_SALTBYTES)
-        interface.put_object(conn, config['remote_password_salt_file'], binascii.hexlify(salt))
+        interface.put_object(conn, config['crypto']['remote_password_salt_file'], binascii.hexlify(salt))
 
     # Everything in here is included as a header, never put anything in this dict that must be private
-    config['encrypt_opts'] = {
+    config['crypto']['encrypt_opts'] = {
         'A' : 'ARGON2I13',
         'O' : pysodium.crypto_pwhash_argon2i_OPSLIMIT_INTERACTIVE,
         'M' : pysodium.crypto_pwhash_argon2i_MEMLIMIT_INTERACTIVE,
@@ -29,11 +32,12 @@ def preprocess_config(interface, conn, config):
     }
 
     key = pysodium.crypto_pwhash(pysodium.crypto_secretstream_xchacha20poly1305_KEYBYTES,
-                                 config['crypt_password'], salt,
-                                 config['encrypt_opts']['O'],
-                                 config['encrypt_opts']['M'],
+                                 config['crypto']['crypt_password'], salt,
+                                 config['crypto']['encrypt_opts']['O'],
+                                 config['crypto']['encrypt_opts']['M'],
                                  pysodium.crypto_pwhash_ALG_ARGON2I13)
-    config['stream_crypt_key'] = key; return config
+
+    config['crypto']['stream_crypt_key'] = key; return config
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 # One-shot encryption and decryption
@@ -45,10 +49,11 @@ def encrypt(child, data, meta, config):
     if 'encrypt' in pl_format['format']:
         pl_format['format']['encrypt']['E'] = 'sodssxcc20'
         meta['header'] = pipeline.serialise_pipeline_format(pl_format)
-        crypt_key = config['stream_crypt_key']; ad_data = meta['header']
+        crypt_key = config['crypto']['stream_crypt_key']; ad_data = meta['header']
         state, header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
         cyphertext = pysodium.crypto_secretstream_xchacha20poly1305_push(state, data, ad_data, 0)
         data = header + cyphertext
+
 
     return child(data, meta, config)
 
@@ -58,7 +63,7 @@ def decrypt(child, meta, config):
 
     pl_format = pipeline.parse_pipeline_format(meta2['header'])
     if 'encrypt' in pl_format['format']:
-        crypt_key = config['stream_crypt_key']; ad_data = meta2['header']
+        crypt_key = config['crypto']['stream_crypt_key']; ad_data = meta2['header']
         header = data[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
         chunk = data[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
         state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, crypt_key)
@@ -76,10 +81,11 @@ class streaming_encrypt:
 
     def pass_config(self, config, pipeline_header):
         if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
-            self.enable = True; crypt_key = config['stream_crypt_key'];
+            self.enable = True; crypt_key = config['crypto']['stream_crypt_key'];
             self.state, self.header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
-            self.child.pass_config(config, pipeline_header)
             self.pipeline_header = pipeline_header
+
+        self.child.pass_config(config, pipeline_header)
 
     def next_chunk(self, chunk):
         if self.enable == True:
@@ -96,7 +102,7 @@ class streaming_decrypt:
 
     def pass_config(self, config, pipeline_header):
         self.pipeline_header = pipeline_header
-        self.crypt_key = config['stream_crypt_key']
+        self.crypt_key = config['crypto']['stream_crypt_key']
         if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
             self.enable = True
 
