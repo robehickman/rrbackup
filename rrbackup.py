@@ -1,5 +1,5 @@
 import sys, os, boto.utils, dateutil, pprint, json, copy
-import fsutil as sfs
+import rrbackup.fsutil as sfs
 import rrbackup.core as core
 import rrbackup.pipeline as pipeline
 import rrbackup.crypto as crypto
