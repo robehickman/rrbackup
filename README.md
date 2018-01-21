@@ -41,7 +41,7 @@ The secret key of the AWS (or IAM) account you wish to back up to. Note that thi
 
 Instillation through setup.py creates a system command 'rrbackup'. By default the application looks for it's configuration file in the current working directory, an alternate location can be specified with --c [conf file path] as the first argument. This also allows you to rename the file if you wish.
 
-To run a backup just run 'rrbackup' at the command line with mo arguments, it will detect the files within the configured directory and upload them. To list or download prior backups the following arguments may be used:
+To run a backup just run 'rrbackup' at the command line with no arguments, it will detect the files within the configured directory and upload them. To list or download prior backups the following arguments may be used:
 
 
 * rrbackup -h  
