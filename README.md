@@ -1,10 +1,10 @@
-Robert's remote backup (rrbackup) is a simple versioning file backup system, It includes a command line client and may also be used as a library.  Stored files may be stored encrypted using libsodium and are grouped into atomic commits. Currently S3 is the only backed supported and the design of this system works sympathetically with the services object versioning. Each file is stored as a separate object it is always possible to recover part of a backup.
+Robert's remote backup (rrbackup) is a simple versioning file backup system, It includes a command line client and may also be used as a library.  Stored files may be encrypted using libsodium and are grouped into atomic commits. Currently S3 is the only backed supported. As each file is stored as a separate object it is always possible to recover part of a backup.
 
-Amazon S3 has object versioning but cannot group objects as an atomic commit, this functionality is achieved by referencing all files from a central manifest, which is stored as a progression of diffs, storing diffs in this way minimises network overhead as only metadata about changed files is maintained. As only files referenced within the manifest are considered to exist if a backup is interrupted by a power failure the system reverts to the prior complete backup. 
+Amazon S3 has object versioning but cannot group objects as an atomic commit, this functionality is achieved by referencing all files from a central manifest stored as a progression of diffs, this minimises network overhead as only metadata about changed files needs to be uploaded. Only files referenced within the manifest are considered to exist so if a backup is interrupted by a power failure the system reverts to the prior good state.
 
 ## Usage
 
-Instillation through setup.py creates a system command 'rrbackup', in order to use this you must create "configuration.json". By default the application looks for this file in the current working directory, but an alternate location can be specified with --c [conf file path] as the first argument. A minimal configuration follows:
+First you must create a configuration file "configuration.json", a minimal configuration follows:
 
 ```json
 {
@@ -21,25 +21,27 @@ Instillation through setup.py creates a system command 'rrbackup', in order to u
 
 These values are:
 
-* "base_path"
+* "base\_path"
 
---- This is the base path of the directory which will be backed up.
+This is the base path of the directory which will be backed up.
 
-* "local manifest file"
+* "local\_manifest\_file"
 
---- Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
+Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
 
-* "s3" : "access_key":
---- The access key of the AWS (or IAM) account you wish to back up to.
+* "s3" : "access\_key":
+The access key of the AWS (or IAM) account you wish to back up to.
 
-* "s3" : "secret_key":
---- The secret key of the AWS (or IAM) account you wish to back up to.
+* "s3" : "secret\_key":
+The secret key of the AWS (or IAM) account you wish to back up to.
 
 * "s3" : "bucket":
---- The secret key of the AWS (or IAM) account you wish to back up to. Note that this bucket must already exist and must have versioning enabled.
+The secret key of the AWS (or IAM) account you wish to back up to. Note that this bucket must already exist and must have versioning enabled.
 
 
 ### Running
+
+Instillation through setup.py creates a system command 'rrbackup By default the application looks for this file in the current working directory, an alternate location can be specified with --c [conf file path] as the first argument. 
 
 Once the configuration has been created With these in place you can run a backup by calling 'rrbackup' at the command line, it will detect the files within the directory and upload them.
 
