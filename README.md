@@ -23,7 +23,7 @@ These values are:
 
 * "base\_path"  
 
-This is the base path of the directory which will be backed up.
+- This is the base path of the directory which will be backed up.
 
 * "local\_manifest\_file"  
 
