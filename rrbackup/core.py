@@ -163,59 +163,38 @@ def backup(interface, conn, config):
 
     #Find and process changes
     diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
+
     if diff !={}:
         diff = [change for p, change in diff.iteritems()]
         diff = sfs.hash_new_files(diff, config['base_path'])
-        diff = sfs.detect_moved_files(file_manifest, diff) #TODO move detection seems to be broken
+        # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
+        #diff = sfs.detect_moved_files(file_manifest, diff)
         diff = sorted(diff,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
 
-        # For garbage collection of failed uploads, log new and changed items to s3
-        gc_changes = [change for change in diff if change['status'] == 'new' or change['status'] == 'changed']
-        meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-        gc_log = pl_out(json.dumps(gc_changes), meta, config)
+        # for de-duplication index hashes from the previous manifest
+        hash_index = {f['hash'] : f for f in file_manifest['files']}
 
-        #--
-        new_diff = []
+        need_to_upload = []; new_diff = []; new_duplicates = [] # these must be assigned to different lists!
         for change in diff:
             if change['status'] in ['new', 'changed']:
-                print colored('Uploading: ' + change['path'], 'green') 
+                msg = colored('Adding: ' + change['path'], 'green')
 
-                fspath = sfs.cpjoin(config['base_path'], change['path'])
+                if change['hash'] in hash_index :
+                    msg += colored(' (De-duplicated)', 'yellow')
 
-                #Determine the correct pipeline format to use for this file from the configuration
-                try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
-                except StopIteration: raise('No pipeline format matches ' + change['path'])
 
-                # Get remote file name and implementation of hash path
-                path_hash = hashlib.sha256(change['path']).hexdigest() if 'hash_names' in matched_plf else change['path']
-                remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
-                if os.stat(fspath).st_size == 0: print colored('Warning, skipping empty file: ' + change['path'], 'red'); continue
-
-                #----
-                pl_format = pipeline.get_default_pipeline_format()
-                pl_format['chunk_size'] = config['chunk_size']
-                pl_format['format'] = {i : None for i in matched_plf}
-                if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
-
-                #-----
-                upload = interface.streaming_upload()
-                pl     = pipeline.build_pipeline_streaming(upload, 'out')
-
-                pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
-
-                upload.begin(conn, remote_path, )
-                with open(fspath, 'rb') as fle:
-                    while True:
-                        chunk = fle.read(config['chunk_size'])
-                        if chunk == "": break
-                        pl.next_chunk(chunk)
-
-                res = upload.finish()
-
-                change['name_hashed'] = 'hash_names' in matched_plf
-                change['real_path']   = change['path']
-                change['version_id']  = res['VersionId']
-                new_diff.append(change)
+                    it = hash_index[change['hash']]
+                    if 'name_hashed' in it:
+                        change['name_hashed'] = it['name_hashed']
+                        change['real_path']   = it['real_path']
+                        change['version_id']  = it['version_id']
+                        new_diff.append(change)
+                    else: # new duplicates need to be handled specially as the above metadata does not exist yet
+                        new_duplicates.append(change)
+                else:
+                    need_to_upload.append(change)
+                    hash_index[change['hash']] = change
+                print msg
 
             elif change['status'] == 'moved':
                 # Moves store the name of the new file but to save space store a pointer to the old file
@@ -232,9 +211,68 @@ def backup(interface, conn, config):
                 print colored('Deleting: ' + change['path'], 'red') 
                 new_diff.append(change)
 
+        print '--------------'
+
+        # For garbage collection of failed uploads, log new and changed items to s3
+        gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
+        meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+        gc_log = pl_out(json.dumps(gc_changes), meta, config)
+
+        #--
+        new_uploads = []
+        for change in need_to_upload:
+            print colored('Uploading: ' + change['path'], 'green')
+
+            fspath = sfs.cpjoin(config['base_path'], change['path'])
+
+            #Determine the correct pipeline format to use for this file from the configuration
+            try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
+            except StopIteration: raise('No pipeline format matches ' + change['path'])
+
+            # Get remote file name and implementation of hash path
+            path_hash = hashlib.sha256(change['path']).hexdigest() if 'hash_names' in matched_plf else change['path']
+            remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
+            if os.stat(fspath).st_size == 0: print colored('Warning, skipping empty file: ' + change['path'], 'red'); continue
+
+            #----
+            pl_format = pipeline.get_default_pipeline_format()
+            pl_format['chunk_size'] = config['chunk_size']
+            pl_format['format'] = {i : None for i in matched_plf}
+            if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
+
+            #-----
+            upload = interface.streaming_upload()
+            pl     = pipeline.build_pipeline_streaming(upload, 'out')
+
+            pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
+
+            upload.begin(conn, remote_path, )
+            with open(fspath, 'rb') as fle:
+                while True:
+                    chunk = fle.read(config['chunk_size'])
+                    if chunk == "": break
+                    pl.next_chunk(chunk)
+
+            res = upload.finish()
+
+            change['name_hashed'] = 'hash_names' in matched_plf
+            change['real_path']   = change['path']
+            change['version_id']  = res['VersionId']
+            new_diff.append(change); new_uploads.append(change)
+
+        print '------------------'
+
+        new_indexed = {u['hash'] : u for u in new_uploads}
+
+        # process duplicates of new files
+        for change in new_duplicates:
+            it = new_indexed[change['hash']]
+            change['name_hashed'] = it['name_hashed']
+            change['real_path']   = it['real_path']
+            change['version_id']  = it['version_id']
+            new_diff.append(change)
+
         # upload the diff
-        #pprint(new_diff)
-        #quit()
         meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         meta2 = pl_out(json.dumps(new_diff), meta, config)
 

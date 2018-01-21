@@ -128,6 +128,8 @@ Once this is configured just add 'encrypt' to the pipelines as desired:
 }
 ```
 
+Note that encryption is TNO: only you know the password, if you lose it you will lose your data.
+
 
 ### Read only operation
 
