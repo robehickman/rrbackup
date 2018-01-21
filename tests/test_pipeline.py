@@ -1,5 +1,5 @@
 import rrbackup.pipeline as pipeline
-import pysodium, unittest, pprint
+import pysodium, unittest, pprint, os
 
 def write_helper(data, meta, config): meta['data'] = data; return meta
 def read_helper(meta, config): return meta['data'], meta
@@ -67,6 +67,7 @@ class test_pipeline(unittest.TestCase):
 
         self.assertEqual(data_in, data_out)
 
+    @unittest.skipUnless(os.path.isfile('test_s3_conf.json'), "To test using s3 please create 'test_s3_conf.json")
     def test_streaming_pipeline(self):
         return
 
