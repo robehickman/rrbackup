@@ -4,3 +4,6 @@
 *.swo
 *.swn
 *.swm
+build
+dist
+rrbackup.egg-info

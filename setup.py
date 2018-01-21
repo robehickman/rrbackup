@@ -1,7 +1,8 @@
+#!/usr/bin/python
 from setuptools import setup
 
 def readme():
-    with open('README') as f:
+    with open('README.md') as f:
         return f.read()
 
 setup(
@@ -10,17 +11,18 @@ setup(
     description='Versioning backup system',
     long_description=readme(),
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
+        'Operating System :: POSIX',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 2.7',
-        'Topic :: File Management :: File Backup',
+        'Topic :: System :: Archiving :: Backup'
     ],
     keywords='file backup',
     url='https://github.com/robehickman/rrbackup',
     author='Robert Hickman',
     author_email='robehickman@gmail.com',
     license='MIT',
-    packages=['rrbackup'],
+    packages=['rrbackup', 'rrbackup.fsutil'],
     test_suite='nose.collector',
     tests_require=['nose'],
     install_requires=[
