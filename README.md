@@ -30,41 +30,37 @@ Path to the local manifest file. The local manifest is a flat JSON file which st
 * "s3" : "access\_key"  
 The access key of the AWS (or IAM) account you wish to back up to.
 
-* "s3" : "secret\_key":
+* "s3" : "secret\_key"  
 The secret key of the AWS (or IAM) account you wish to back up to.
 
-* "s3" : "bucket":
+* "s3" : "bucket"  
 The secret key of the AWS (or IAM) account you wish to back up to. Note that this bucket must already exist and must have versioning enabled.
 
 
 ### Running
 
-Instillation through setup.py creates a system command 'rrbackup By default the application looks for this file in the current working directory, an alternate location can be specified with --c [conf file path] as the first argument. 
+Instillation through setup.py creates a system command 'rrbackup'. By default the application looks for it's configuration file in the current working directory, an alternate location can be specified with --c [conf file path] as the first argument. This also allows you to rename the file if you wish.
 
-Once the configuration has been created With these in place you can run a backup by calling 'rrbackup' at the command line, it will detect the files within the directory and upload them.
-
-Other parameters can be used to list and download backups which have been created:
-
-* rrbackup list_versions
-
---- Lists all versions that exist, newest last
+To run a backup just run rrbackup' at the command line with mo arguments, it will detect the files within the configured directory and upload them. To list or download prior backups the following arguments may be used:
 
 
-* rrbackup list_files [version_id]
+* rrbackup -h
+Display help information
 
---- List all files in a version
-
-
-* rrbackup list_changes  [version_id]
-
---- List what files changed in the named version
+* rrbackup list\_versions  
+Lists all versions that exist, newest last
 
 
-* rrbackup download [version id]  [target] [ignore filters]
+* rrbackup list\_files [version id]  
+List all files in a version
 
---- Download a file or files from the backup. This creates the target directory if it does not exist. Note that this will overwrite any existing files in the directory so using a new one is recommended.
 
---- Ignore filters is an optional parameter which specifies files that should not be downloaded, these are listed one per line and support Unix wildcards similar to gitignore. To ignore everything in the directory 'foo' in the root of the backed up directory you would use '/foo*'. The leading slash is required.
+* rrbackup list\_changes  [version id]  
+List what files changed in the named version
+
+
+* rrbackup download [version id]  [target] [ignore filters]  
+Download a file or files from the backup. This creates the target directory if it does not exist. Note that this will overwrite any existing files in the directory so using a new one is recommended. If you do not wish to download everything list files you don't want in a text file then pass it's path to the Ignore filters parameter. These are listed one per line and support Unix wildcards similar to gitignore. To ignore everything in the directory 'foo' in the root of the backed up directory you would use '/foo\*'. *Note The leading slash is required*.
 
 
 ## Additional options
