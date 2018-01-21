@@ -22,13 +22,13 @@ First you must create a configuration file "configuration.json", a minimal confi
 These values are:
 
 * "base\_path"  
-.. This is the base path of the directory which will be backed up.
+This is the base path of the directory which will be backed up.
 
 * "local\_manifest\_file"  
-.. Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
+Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
 
 * "s3" : "access\_key"  
-.. The access key of the AWS (or IAM) account you wish to back up to.
+The access key of the AWS (or IAM) account you wish to back up to.
 
 * "s3" : "secret\_key":
 The secret key of the AWS (or IAM) account you wish to back up to.
