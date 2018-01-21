@@ -4,16 +4,16 @@ Amazon S3 has object versioning but cannot group objects as an atomic commit, th
 
 ## Usage
 
-Instillation through setup.py creates a system command 'rrbackup', in order to use this you must create "configuration.json". By default the application looks for this file in the current working directory, but an alternate location can be specified with --c <conf file path> as the first argument. A minimal configuration is as follows:
+Instillation through setup.py creates a system command 'rrbackup', in order to use this you must create "configuration.json". By default the application looks for this file in the current working directory, but an alternate location can be specified with --c [conf file path] as the first argument. A minimal configuration follows:
 
 ```json
 {
-    "base\_path":                 "/path/to/directory/to/back/up",
-    "local\_manifest\_file":       "/path/to/local/manifest",
+    "base_path":                 "/path/to/directory/to/back/up",
+    "local_manifest_file":       "/path/to/local/manifest",
 
     "s3" : {
-        "access\_key": "your aws access key",
-        "secret\_key": "your aws secret key",
+        "access_key": "your aws access key",
+        "secret_key": "your aws secret key",
         "bucket":     "aws bucket to use"
     },
 }
@@ -21,7 +21,7 @@ Instillation through setup.py creates a system command 'rrbackup', in order to u
 
 These values are:
 
-* "base\_path"
+* "base_path"
 
 --- This is the base path of the directory which will be backed up.
 
@@ -29,10 +29,10 @@ These values are:
 
 --- Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
 
-* "s3" : "access\_key":
+* "s3" : "access_key":
 --- The access key of the AWS (or IAM) account you wish to back up to.
 
-* "s3" : "secret\_key":
+* "s3" : "secret_key":
 --- The secret key of the AWS (or IAM) account you wish to back up to.
 
 * "s3" : "bucket":
@@ -45,17 +45,17 @@ Once the configuration has been created With these in place you can run a backup
 
 Other parameters can be used to list and download backups which have been created:
 
-* rrbackup list\_versions
+* rrbackup list_versions
 
 --- Lists all versions that exist, newest last
 
 
-* rrbackup list\_files [version\_id]
+* rrbackup list_files [version_id]
 
 --- List all files in a version
 
 
-* rrbackup list\_changes  [version\_id]
+* rrbackup list_changes  [version_id]
 
 --- List what files changed in the named version
 
@@ -73,7 +73,7 @@ Other parameters can be used to list and download backups which have been create
 
 By default this application applies no processing to backed up files, storing them exactly as-is. Pipelines of transformations can be applied using arbitrary wildcards to encrypt files, compress them or obfuscate there names. This can be used to restrict compression to known compressible files or apply encryption to sensitive data, storing things which are already public as-is. This avoids unneeded processing overhead.
 
-Pipeline formats are expressed as a list of keywords and the order of items does not matter, 'hash\_names', 'compress' and 'encrypt'. It does not matter what order you specify them, they are always handled in that order with encryption applied last. When downloading the order is reversed with names restored from the manifest. Please see the section 'encryption' below for usage of encryption feature.
+Pipeline formats are expressed as a list of keywords and the order of items does not matter, 'hash_names', 'compress' and 'encrypt'. It does not matter what order you specify them, they are always handled in that order with encryption applied last. When downloading the order is reversed with names restored from the manifest. Please see the section 'encryption' below for usage of encryption feature.
 
 Two pipeline specifiers exist, one applies to the applications metadata and the other to the backed up files.
 
@@ -84,7 +84,7 @@ The metadata pipeline is defined within the top-level of the json file, it appli
 
 ```json
 {
-    "meta\_pipeline": ["compress", "encrypt"]
+    "meta_pipeline": ["compress", "encrypt"]
 }
 ```
 
@@ -95,9 +95,9 @@ File pipelines can be applied to single files or groups of files using identifie
 
 ```json
 {
-    "file\_pipeline": [
+    "file_pipeline": [
         ["/bar", []],
-        ["*", ["hash\_names", "encrypt"]]
+        ["*", ["hash_names", "encrypt"]]
     ]
 }
 ```
@@ -112,7 +112,7 @@ Encryption uses the 'secret stream' api provided by libsodium so can handle arbi
 ```json
 {
     "crypto" : {
-        "crypt\_password":            "crypt password"
+        "crypt_password":            "crypt password"
     }
 }
 ```
@@ -121,8 +121,8 @@ Once this is configured just add 'encrypt' to the pipelines as desired:
 
 ```json
 {
-    "meta\_pipeline": ["compress", "encrypt"],
-    "file\_pipeline": [
+    "meta_pipeline": ["compress", "encrypt"],
+    "file_pipeline": [
         ["*", ["encrypt"]]
     ]
 }
@@ -135,8 +135,8 @@ If using this system to back up a server you may want a client on another comput
 
 ```json
 {
-    "read\_only":                 false,
-    "allow\_delete\_versions":     true
+    "read_only":                 false,
+    "allow_delete_versions":     true
 }
 ```
  
@@ -152,9 +152,9 @@ If you wish to obfuscate the names of the Remote manifest diffs, remote GC log a
 
 ```json
 {
-    "remote\_manifest\_diff\_file": "asdfgjkll",
-    "remote\_gc\_log\_file":        "cvbnmoytety",
-    "remote\_password\_salt\_file": "qwertyuio"
+    "remote_manifest_diff_file": "asdfgjkll",
+    "remote_gc_log_file":        "cvbnmoytety",
+    "remote_password_salt_file": "qwertyuio"
 }
 ```
 
@@ -167,7 +167,7 @@ You may have files which you never wish to back up, such as transient cash files
 
 ```json
 {
-    "ignore\_files" : [
+    "ignore_files" : [
         "/ignored*"
     ]
 }
@@ -182,8 +182,8 @@ Sometimes you may want to add a file to a backup, keeping it in the backup but d
 
 ```json
 {
-    "skip\_delete" : [
-        "/skip\_delete*"
+    "skip_delete" : [
+        "/skip_delete*"
     ]
 }
 ```
@@ -195,38 +195,38 @@ The following is a single configuration with all of the options above.
 
 ```json
 {
-    "base\_path":                 "/path/to/directory/to/back/up",
-    "local\_manifest\_file":       "/path/to/local/manifest",
+    "base_path":                 "/path/to/directory/to/back/up",
+    "local_manifest_file":       "/path/to/local/manifest",
 
     "s3" : {
-        "access\_key": "your aws access key",
-        "secret\_key": "your aws secret key",
+        "access_key": "your aws access key",
+        "secret_key": "your aws secret key",
         "bucket":     "aws bucket to use"
     },
 
     "crypto" : {
-        "crypt\_password":            "crypt password"
+        "crypt_password":            "crypt password"
     },
 
-    "meta\_pipeline": ["compress", "encrypt"],
-    "file\_pipeline": [
+    "meta_pipeline": ["compress", "encrypt"],
+    "file_pipeline": [
         ["/bar", []],
-        ["*", ["hash\_names", "encrypt"]]
+        ["*", ["hash_names", "encrypt"]]
     ],
 
-    "read\_only":                 false,
-    "allow\_delete\_versions":     true,
+    "read_only":                 false,
+    "allow_delete_versions":     true,
 
-    "remote\_manifest\_diff\_file": "asdfgjkll",
-    "remote\_gc\_log\_file":        "cvbnmoytety",
-    "remote\_password\_salt\_file": "qwertyuio",
+    "remote_manifest_diff_file": "asdfgjkll",
+    "remote_gc_log_file":        "cvbnmoytety",
+    "remote_password_salt_file": "qwertyuio",
 
-    "ignore\_files" : [
+    "ignore_files" : [
         "/ignored*"
     ],
 
-    "skip\_delete" : [
-        "/skip\_delete*"
+    "skip_delete" : [
+        "/skip_delete*"
     ]
 }
 ```
