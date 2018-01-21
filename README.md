@@ -60,7 +60,7 @@ List what files changed in the named version
 
 
 * rrbackup download [version id]  [target] [ignore filters]  
-Download a file or files from the backup. This creates the target directory if it does not exist. Note that this will overwrite any existing files in the directory so using a new one is recommended. If you do not wish to download everything list files you don't want in a text file then pass it's path to the Ignore filters parameter. These are listed one per line and support Unix wildcards similar to gitignore. To ignore everything in the directory 'foo' in the root of the backed up directory you would use '/foo\*'. *Note The leading slash is required*.
+Download a file or files from the backup. This creates the target directory if it does not exist. Note that this will overwrite any existing files in the directory so using a new one is recommended. If you do not wish to download everything list files you don't want in a text file then pass it's path to the Ignore filters parameter. These are listed one per line and support Unix wildcards similar to gitignore. To ignore everything in the directory 'foo' in the root you would use '/foo\*'. *Note that the leading slash is required*.
 
 
 ## Additional options
@@ -69,7 +69,7 @@ Download a file or files from the backup. This creates the target directory if i
 
 By default this application applies no processing to backed up files, storing them exactly as-is. Pipelines of transformations can be applied using arbitrary wildcards to encrypt files, compress them or obfuscate there names. This can be used to restrict compression to known compressible files or apply encryption to sensitive data, storing things which are already public as-is. This avoids unneeded processing overhead.
 
-Pipeline formats are expressed as a list of keywords and the order of items does not matter, 'hash_names', 'compress' and 'encrypt'. It does not matter what order you specify them, they are always handled in that order with encryption applied last. When downloading the order is reversed with names restored from the manifest. Please see the section 'encryption' below for usage of encryption feature.
+Pipeline formats are expressed as a list of keywords and the order of items does not matter, Valid filters are 'hash\_names', 'compress' and 'encrypt'. It does not matter what order you specify them, they are always handled 'hash\_names' -> 'compress' -> 'encrypt'. When downloading the order is reversed with names restored from the manifest. Please see the section 'encryption' below for usage of encryption feature.
 
 Two pipeline specifiers exist, one applies to the applications metadata and the other to the backed up files.
 
@@ -98,12 +98,12 @@ File pipelines can be applied to single files or groups of files using identifie
 }
 ```
 
-The above says 'apply no processing to the file 'bar' in the root and 'hash names' and 'encrypt' to everything else.  Note that filters must always start with a slash '/. Also note that the order of these wildcards are listed matters: they are are evaluated top to bottom so must be most to least specific. For example placing a match all wildcard '*' first matches everything and following items will not be considered.
+The above says 'apply no processing to the file 'bar' in the root and 'hash names' and 'encrypt' to everything else.  Note that filters must always start with a slash '/. Also note that the order of these wildcards are listed matters: they are are evaluated top to bottom so must be most to least specific. For example placing a match all wildcard '\*' first matches everything and following items will not be considered.
 
 
 ### Encryption
 
-Encryption uses the 'secret stream' api provided by libsodium so can handle arbitrarily large files without excusing memory.  To make use of encryption first you must configure the encryption password in the conf file, this is processed using the ARGON2I13 key derivation function to create the encryption key:
+Encryption uses the 'secret stream' api provided by libsodium so can handle arbitrarily large files without exhausting memory.  To make use of encryption first you must configure the encryption password in the conf file, this is processed using the ARGON2I13 key derivation function to create the encryption key:
 
 ```json
 {
@@ -117,7 +117,7 @@ Once this is configured just add 'encrypt' to the pipelines as desired:
 
 ```json
 {
-    "meta_pipeline": ["compress", "encrypt"],
+    "meta_pipeline": ["encrypt"],
     "file_pipeline": [
         ["*", ["encrypt"]]
     ]
@@ -133,8 +133,7 @@ If using this system to back up a server you may want a client on another comput
 
 ```json
 {
-    "read_only":                 false,
-    "allow_delete_versions":     true
+    "read_only":                 true,
 }
 ```
  
@@ -142,6 +141,14 @@ If using this system to back up a server you may want a client on another comput
 ### Write only operation
 
 If using this to back up a server you may want to configure it to work in write-only mode enforced with IAM permissions. This feature is not currently implemented.
+
+Instead of deleting garbage objects they will be appended to a garbage object log.
+
+```json
+{
+    "allow_delete_versions":     false
+}
+```
 
 
 ### Obfuscating the names of metadata files
