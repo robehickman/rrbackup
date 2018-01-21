@@ -13,12 +13,19 @@ if len(sys.argv) > 1 and (sys.argv[1] == '-h' or sys.argv[1] == '--help'):
     print """
 Robert's Remote Backup, backup a directory with change history.
 
-[none]                               - run backup from configuration file
-list_versions                        - List all versions
-list_files    [version_id]           - List all files in a version
-list_changes  [version_id]           - List what has changed in the named version
-download      [version id]  [target] - Download a file or files from the backup, creates
-                                       target directory if it does not exist """
+Prefix arguments:
+-h                                                 - Display this help notice
+--c [path to conf file]                            - Specify an alternate path to the configuration
+
+Positional arguments:
+[none]                                             - run backup from configuration file
+list_versions                                      - List all versions
+list_files    [version_id]                         - List all files in a version
+list_changes  [version_id]                         - List what has changed in the named version
+download      [version id]  [target] [filter file] - Download a file or files from the backup, creates
+                                                    target directory if it does not exist. Filter file
+                                                    specifies files that should not be downloaded, one
+                                                    per line and unix wildcards are supported """
 
 else:
     # Assemble default configuration
@@ -31,7 +38,8 @@ else:
 
     conf_file = 'configuration.json'
     if len(args) > 0 and args[0] == '--c':
-        conf_file = args.pop(0)
+        if len(args) < 2: raise SystemExit('Expected argument following --c to be a path to configuration file, nothing found.')
+        args.pop(0); conf_file = args.pop(0)
 
     parsed_config = json.loads(sfs.file_get_contents(conf_file))
     if 'meta_pipeline' in parsed_config and type(parsed_config['meta_pipeline']) != list: raise ValueError('meta_pipeline in conf file mist be a list')
