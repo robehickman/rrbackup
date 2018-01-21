@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import sys, os, boto.utils, dateutil, pprint, json, copy
 import rrbackup.fsutil as sfs
 import rrbackup.core as core

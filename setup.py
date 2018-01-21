@@ -26,6 +26,6 @@ setup(
     install_requires=[
         'termcolor', 'pysodium'
     ],
-    scripts=['rrbackup.py'],
+    scripts=['cli/rrbackup'],
     zip_safe=False)
 
