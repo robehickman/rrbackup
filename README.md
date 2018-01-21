@@ -153,7 +153,7 @@ Instead of deleting garbage objects they will be appended to a garbage object lo
 
 ### Obfuscating the names of metadata files
 
-If you wish to obfuscate the names of the Remote manifest diffs, remote GC log and password salt file this can be done by adding the following to the configuration:
+If you wish to obfuscate the names of the remote manifest diffs, remote GC log and password salt file this can be done by adding the following to the configuration:
 
 ```json
 {
@@ -183,7 +183,7 @@ Note that these are again evaluated top to bottom so be careful with wildcards. 
 
 ### Skipping delete
 
-Sometimes you may want to add a file to a backup, keeping it in the backup but deleting it from the local file system to save space. An example being database snapshots. Such files should be added to 'ignore delete', they will be added when they appear in the filesystem but will not be deleted from the backup when removed. Once again these are evaluated top to bottom so be careful with wildcards.
+Sometimes you may want to add a file to a backup, keeping it in the backup but deleting it from the local file system to save space, deltas of database snapshots for instance. Such files should be added to 'ignore delete', they will be added when they appear in the filesystem but will not be deleted from the backup when removed. Once again these are evaluated top to bottom so be careful with wildcards.
 
 ```json
 {
@@ -239,4 +239,4 @@ The following is a single configuration with all of the options above.
 
 ### Usage as a library
 
-The command line client is a thin interface to an underlying library, please see the command line client and 'core.py' for usage.
+The command line client is a thin interface to an underlying library, please see the command line client (cli/rrbackup) and 'core.py' for usage.
