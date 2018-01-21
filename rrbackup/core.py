@@ -1,12 +1,10 @@
-from boto.s3.connection import S3Connection
+import functools, hashlib, time, datetime, fnmatch, os, json
 from copy import deepcopy
-from boto.s3.key import Key
 from termcolor import colored
-import fsutil as sfs
-import boto.utils, os, json
 from pprint import pprint
+#---
 import rrbackup.pipeline as pipeline
-import functools, hashlib, time, datetime, fnmatch
+import fsutil as sfs
 
 ###################################################################################
 def default_config():

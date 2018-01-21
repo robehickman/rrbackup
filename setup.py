@@ -26,7 +26,7 @@ setup(
     test_suite='nose.collector',
     tests_require=['nose'],
     install_requires=[
-        'termcolor', 'pysodium'
+        'boto3', 'termcolor', 'pysodium'
     ],
     scripts=['cli/rrbackup'],
     zip_safe=False)
