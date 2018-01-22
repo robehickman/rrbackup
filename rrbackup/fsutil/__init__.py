@@ -91,17 +91,26 @@ def hash_file(file_path, block_size = 65536):
 def get_file_list(path):
     """ Recursively lists all files in a file system below 'path'. """
     f_list = []
+    read_errors = []
     def recur_dir(path, newpath = os.path.sep):
-        files = os.listdir(path) 
+        try: files = os.listdir(path)
+        except OSError:
+            read_errors.append(path)
+            return
+
         for fle in files:
             f_path = cpjoin(path, fle)
             if os.path.isdir(f_path):
                 recur_dir(f_path, cpjoin(newpath, fle))
             elif os.path.isfile(f_path):
-                f_list.append(get_single_file_info(f_path, cpjoin(newpath, fle)))
+                try:
+                    open(f_path).close()
+                    f_list.append(get_single_file_info(f_path, cpjoin(newpath, fle)))
+                except IOError:
+                    read_errors.append(path)
 
     recur_dir(path)
-    return f_list
+    return f_list, read_errors
 
 ############################################################################################
 def make_dict(s_list):

@@ -154,7 +154,11 @@ def backup(interface, conn, config):
     if 'read_only' in config and config['read_only'] == True: raise Exception('read only')
 
     file_manifest = get_manifest(interface, conn, config)
-    current_state = sfs.get_file_list(config['base_path'])
+    current_state, errors = sfs.get_file_list(config['base_path'])
+
+    if errors != []:
+        for e in errors: print colored('Could not read ' + e, 'red') 
+        print '--------------'
 
     # filter ignore files
     current_state = sfs.filter_file_list(current_state, config['ignore_files'])
@@ -164,6 +168,12 @@ def backup(interface, conn, config):
 
     if diff !={}:
         diff = [change for p, change in diff.iteritems()]
+        
+        for f in diff:
+            try: open('file').close()
+            except IOError: print "don't have permission"
+
+
         diff = sfs.hash_new_files(diff, config['base_path'])
         #-------
         # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
