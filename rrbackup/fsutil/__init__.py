@@ -107,7 +107,7 @@ def get_file_list(path):
                     open(f_path).close()
                     f_list.append(get_single_file_info(f_path, cpjoin(newpath, fle)))
                 except IOError:
-                    read_errors.append(path)
+                    read_errors.append(f_path)
 
     recur_dir(path)
     return f_list, read_errors
