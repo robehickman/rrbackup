@@ -168,12 +168,6 @@ def backup(interface, conn, config):
 
     if diff !={}:
         diff = [change for p, change in diff.iteritems()]
-        
-        for f in diff:
-            try: open('file').close()
-            except IOError: print "don't have permission"
-
-
         diff = sfs.hash_new_files(diff, config['base_path'])
         #-------
         # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
