@@ -383,7 +383,9 @@ def garbage_collect(interface, conn, config, mode='simple'):
         gc_log = json.loads(data)
 
         #----
-        manifest = rebuild_manifest_from_diffs(get_remote_manifest_diffs(interface, conn, config))
+        diffs = get_remote_manifest_diffs(interface, conn, config)
+        if diffs != []: manifest = rebuild_manifest_from_diffs(diffs)
+        else: manifest = new_manifest()
         index = {fle['path'] : fle for fle in manifest['files']}
 
         garbage_objects = []
