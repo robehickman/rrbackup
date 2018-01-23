@@ -234,6 +234,12 @@ Then add the following policy to IAM and attach it to a new write only user, rep
 
 ```
 
+### Using bucket life cycle rules to cleanup garbage collection logs
+
+Unfortunately S3 versioning cannot be controlled at the scope of individual objects and consequently old versions of the garbage collection log and garbage object log (if in write only mode) will accumulate. As only the latest are needed for normal operation I advise creating a life cycle rules to delete old versions of 'gc\_log' and 'garbage\_objects', or there equivalent names if you have renamed them.
+
+Note: NEVER create rules to delete old manifest diffs or old versions of anything in the 'files' directory as you will corrupt your backup.
+
 
 ### Obfuscating the names of metadata files
 

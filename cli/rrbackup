@@ -59,8 +59,6 @@ else:
     # Setup the interface and core
     interface = s3
     conn = interface.connect(parsed_config)
-    #interface.wipe_all(conn)
-    #quit()
 
     config = pipeline.preprocess_config(interface, conn, config)
     core.init(interface, conn, config)
