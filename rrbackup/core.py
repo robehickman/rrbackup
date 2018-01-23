@@ -157,12 +157,14 @@ def backup(interface, conn, config):
     file_manifest = get_manifest(interface, conn, config)
     current_state, errors = sfs.get_file_list(config['base_path'])
 
+    # filter ignore files
+    current_state = sfs.filter_file_list(current_state, config['ignore_files'])
+    errors        = sfs.filter_file_list(current_state, [{'path' : e} for e in errors])
+
     if errors != []:
         for e in errors: print colored('Could not read ' + e, 'red') 
         print '--------------'
 
-    # filter ignore files
-    current_state = sfs.filter_file_list(current_state, config['ignore_files'])
 
     #Find and process changes
     diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
