@@ -9,18 +9,19 @@ import fsutil as sfs
 ###################################################################################
 def default_config():
     """ The default configuration structure. """
-    return { 'base_path'                 : None,             # The root from where the backup is performed
-             'remote_manifest_diff_file' : 'manifest_diffs', # Location of the remote manifest diffs
-             'remote_gc_log_file'        : 'gc_log',         # Location of the remote garbage collection log
-             'remote_base_path'          : 'files',          # The directory used to store files on S3
-             'local_manifest_file'       : 'manifest',       # Name of the local manifest file
-             'chunk_size'                : 1048576 * 5,      # minimum chunk size is 5MB on s3, 1mb = 1048576
-             'read_only'                 : False,            # can we write to the remote?
-             'allow_delete_versions'     : True,             # Should remote versions be deletable (used by GC)
-             'meta_pipeline'             : [],               # pipeline applied to meta files like manifest diffs
-             'file_pipeline'             : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
-             'ignore_files'              : [],               # files to ignore
-             'skip_delete'               : []}               # files which should never be deleted from manifest
+    return { 'base_path'                      : None,             # The root from where the backup is performed
+             'remote_manifest_diff_file'      : 'manifest_diffs', # Location of the remote manifest diffs
+             'remote_gc_log_file'             : 'gc_log',         # Location of the remote garbage collection log
+             'remote_garbage_object_log_file' : 'garbage_objects',# Accumulating log of garbage objects
+             'remote_base_path'               : 'files',          # The directory used to store files on S3
+             'local_manifest_file'            : 'manifest',       # Name of the local manifest file
+             'chunk_size'                     : 1048576 * 5,      # minimum chunk size is 5MB on s3, 1mb = 1048576
+             'read_only'                      : False,            # can we write to the remote?
+             'allow_delete_versions'          : True,             # Should remote versions be deletable (used by GC)
+             'meta_pipeline'                  : [],               # pipeline applied to meta files like manifest diffs
+             'file_pipeline'                  : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
+             'ignore_files'                   : [],               # files to ignore
+             'skip_delete'                    : []}               # files which should never be deleted from manifest
 
 ###################################################################################
 def new_manifest():
@@ -383,6 +384,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
         gc_log = json.loads(data)
 
         #----
+        #manifest = get_manifest(interface, conn, config)
         diffs = get_remote_manifest_diffs(interface, conn, config)
         if diffs != []: manifest = rebuild_manifest_from_diffs(diffs)
         else: manifest = new_manifest()
@@ -409,6 +411,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
     #---------------
     elif mode == 'full':
         missing_objects, garbage_objects = varify_manifest(interface, conn, config)
+        if missing_objects != []: raise ValueError('Missing objects found')
 
     #---------------
     else: raise ValueError('Invalid GC mode')
@@ -417,9 +420,12 @@ def garbage_collect(interface, conn, config, mode='simple'):
     # else append them onto the garbage object log.
     if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
         for item in garbage_objects:
-            print 'deleting garbage object: ' + str(item)
-            interface.delete_object(conn, item[0], item[1])
+            print colored('Deleting garbage object: ' + str(item) , 'red')
+            interface.delete_object(conn, item[0], version_id = item[1])
     else:
+        for item in garbage_objects:
+            print colored('Appending to garbage object log: ' + str(item) , 'red')
+
         meta = {'path'       : config['garbage_objects_log_file'],
                 'version_id' : None,
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
@@ -430,14 +436,12 @@ def garbage_collect(interface, conn, config, mode='simple'):
             log = []
 
         log.append(garbage_objects)
-        meta = {'path' : config['garbage_objects_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+        meta = {'path' : config['remote_garbage_object_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
         meta2 = pl_out(json.dumps(log), meta, config)
-
 
     # Finally delete the GC log
     interface.delete_object(conn, config['remote_gc_log_file'])
 
-    if missing_objects != []: raise ValueError('Missing objects found')
 
 ############################################################################################
 def varify_manifest(interface, conn, config):
