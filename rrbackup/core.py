@@ -160,10 +160,10 @@ def backup(interface, conn, config):
 
     # filter ignore files
     current_state = sfs.filter_file_list(current_state, config['ignore_files'])
-    errors        = sfs.filter_file_list(current_state, [{'path' : e} for e in errors])
+    errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
 
     if errors != []:
-        for e in errors: print colored('Could not read ' + e, 'red') 
+        for e in errors: print colored('Could not read ' + e['path'], 'red') 
         print '--------------'
 
 
