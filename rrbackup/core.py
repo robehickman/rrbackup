@@ -225,9 +225,10 @@ def backup(interface, conn, config):
         print '--------------'
 
         # For garbage collection of failed uploads, log new and changed items to s3
-        gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
-        meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-        gc_log = pl_out(json.dumps(gc_changes), meta, config)
+        if need_to_upload != []:
+            gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
+            meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+            gc_log = pl_out(json.dumps(gc_changes), meta, config)
 
         #--
         new_uploads = {}
@@ -314,9 +315,10 @@ def backup(interface, conn, config):
         os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
 
         # delete the garbage collection log
-        time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
+        #time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
 
-        interface.delete_object(conn, config['remote_gc_log_file'])
+        if need_to_upload != []:
+            interface.delete_object(conn, config['remote_gc_log_file'])
 
 ###################################################################################
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
@@ -384,10 +386,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
         gc_log = json.loads(data)
 
         #----
-        #manifest = get_manifest(interface, conn, config)
-        diffs = get_remote_manifest_diffs(interface, conn, config)
-        if diffs != []: manifest = rebuild_manifest_from_diffs(diffs)
-        else: manifest = new_manifest()
+        manifest = get_manifest(interface, conn, config)
         index = {fle['path'] : fle for fle in manifest['files']}
 
         garbage_objects = []
