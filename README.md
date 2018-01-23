@@ -131,23 +131,107 @@ Note that encryption is TNO: only you know the password, if you lose it you will
 
 If using this system to back up a server you may want a client on another computer, as S3 lacks synchronisation features it is a bad idea to have multiple clients writing to the same s3 bucket. The client can be configured to operate in read-only mode by adding the following to the configuration file. This can be enforced with IAM permissions.
 
+First set the following in the configuration:
+
 ```json
 {
     "read_only":                 true,
+    "write_only":                false,
 }
 ```
+
+Then add the following policy to IAM and attach it to a new read only user, replace YOUR-BUCKET with the name of your bucket:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketVersioning",
+                "s3:ListBucketVersions"
+                "s3:getObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR-BUCKET",
+                "arn:aws:s3:::YOUR-BUCKET/*"
+            ]
+        }
+    ]
+}
+
+```
+
  
 
 ### Write only operation
 
-If using this to back up a server you may want to configure it to work in write-only mode enforced with IAM permissions. This feature is not currently implemented.
+If using this to back up a server you may want to run in write-only mode enforced with IAM permissions. Files are write only but read access is required for the manifest, salt file, gc log and garbage objects file. It also requires permission to insert delete markers on the garbage collection log. Also note that you cannot do initial setup with these permissions: a grant-all account should be used for setup.
 
-Instead of deleting garbage objects they will be appended to a garbage object log.
+If a backup fails in a way that leaves garbage objects on s3 these will be concatenated onto a garbage objects file when running in write-only mode. It is important to clean these periodically using a client with read-write permissions. S3 cannot append to objects thus the whole thing is downloaded and reuploaded.
+
+First set the following in the configuration:
+
 
 ```json
 {
+    "read_only":                 false,
+    "write_only":                true,
     "allow_delete_versions":     false
 }
+```
+
+Then add the following policy to IAM and attach it to a new write only user, replace YOUR-BUCKET with the name of your bucket:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:PutObject",
+                "s3:PutObjectAcl",
+                "s3:GetBucketVersioning",
+                "s3:ListBucketMultipartUploads",
+                "s3:ListMultipartUploadParts",
+                "s3:AbortMultipartUpload",
+                "s3:ListBucketVersions"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR-BUCKET",
+                "arn:aws:s3:::YOUR-BUCKET/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:getObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR-BUCKET/salt_file",
+                "arn:aws:s3:::YOUR-BUCKET/manifest_diffs",
+                "arn:aws:s3:::YOUR-BUCKET/gc_log",
+                "arn:aws:s3:::YOUR-BUCKET/garbage_objects"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:deleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR-BUCKET/gc_log"
+            ]
+        }
+    ]
+}
+
 ```
 
 
@@ -163,7 +247,7 @@ If you wish to obfuscate the names of the remote manifest diffs, remote GC log a
 }
 ```
 
-Note that doing this adds little security as the function of these files can be deduced from how they are used. There contents may be protected with encryption as described above.
+Note that doing this adds little security as the function of these files can be deduced from how they are used. There contents may be protected with encryption as described above.  If you are rename these files and use a write-only IAM policy remember to update the names in the policy as well.
 
 
 ### Ignoring files

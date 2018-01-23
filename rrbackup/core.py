@@ -16,7 +16,8 @@ def default_config():
              'remote_base_path'               : 'files',          # The directory used to store files on S3
              'local_manifest_file'            : 'manifest',       # Name of the local manifest file
              'chunk_size'                     : 1048576 * 5,      # minimum chunk size is 5MB on s3, 1mb = 1048576
-             'read_only'                      : False,            # can we write to the remote?
+             'read_only'                      : False,            # Disable writing operations
+             'write_only'                     : False,            # Disable reading operations
              'allow_delete_versions'          : True,             # Should remote versions be deletable (used by GC)
              'meta_pipeline'                  : [],               # pipeline applied to meta files like manifest diffs
              'file_pipeline'                  : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
@@ -325,6 +326,8 @@ def backup(interface, conn, config):
 ###################################################################################
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
     """ Download files from a specified version """
+
+    if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
 
     versions = get_remote_manifest_diffs(interface, conn, config)
     file_manifest = rebuild_manifest_from_diffs(versions, version_id)
