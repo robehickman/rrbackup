@@ -426,7 +426,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
         for item in garbage_objects:
             print colored('Appending to garbage object log: ' + str(item) , 'red')
 
-        meta = {'path'       : config['garbage_objects_log_file'],
+        meta = {'path'       : config['remote_garbage_object_log_file'],
                 'version_id' : None,
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
         try:
