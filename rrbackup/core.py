@@ -198,7 +198,7 @@ def backup(interface, conn, config):
                     if 'empty' in it:
                         change['empty'] = True
                         new_diff.append(change)
-                    if 'name_hashed' in it:
+                    elif 'name_hashed' in it:
                         change['name_hashed'] = it['name_hashed']
                         change['real_path']   = it['real_path']
                         change['version_id']  = it['version_id']
