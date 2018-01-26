@@ -30,7 +30,7 @@ def default_config(interface):
     return crypto.add_default_config(conf)
 
 ###################################################################################
-def validate_config(parsed_config)
+def validate_config(parsed_config):
     if 'meta_pipeline' in parsed_config and type(parsed_config['meta_pipeline']) != list: raise ValueError('meta_pipeline in conf file mist be a list')
     if 'file_pipeline' in parsed_config and type(parsed_config['file_pipeline']) != list: raise ValueError('file_pipeline in conf file mist be a list')
     if 'ignore_files' in parsed_config and type(parsed_config['ignore_files']) != list: raise ValueError('ignore_files in conf file mist be a list')
