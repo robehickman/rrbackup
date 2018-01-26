@@ -1,4 +1,5 @@
 import functools, hashlib, time, datetime, fnmatch, os, json, fcntl
+import collections
 from copy import deepcopy
 from termcolor import colored
 from pprint import pprint
