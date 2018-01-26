@@ -70,8 +70,9 @@ def init(interface, conn, config):
     pl_out = pipeline.build_pipeline(functools.partial(interface.write_file, conn), 'out')
 
     # Check for previous failed uploads and delete them
-    interface.delete_failed_uploads(conn)
-    garbage_collect(interface, conn, config, 'simple')
+    if 'read_only' in config and config['read_only'] == False:
+        interface.delete_failed_uploads(conn)
+        garbage_collect(interface, conn, config, 'simple')
 
 ###################################################################################
 def get_remote_manifest_versions(interface, conn, config):
