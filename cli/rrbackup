@@ -3,12 +3,12 @@ import sys, os, dateutil, pprint, json, copy, pysodium
 import rrbackup.fsutil as sfs
 import rrbackup.core as core
 import rrbackup.pipeline as pipeline
-import rrbackup.crypto as crypto
-import rrbackup.s3_interface as s3
+import rrbackup.s3_interface as interface
 
 import collections
 
 if not pysodium.sodium_version_check(1, 0, 15): raise SystemExit('Requires libsodium >= 1.0.15')
+args = copy.deepcopy(sys.argv); args.pop(0)
 
 #++++++++++++++++++++++++
 if len(sys.argv) > 1 and (sys.argv[1] == '-h' or sys.argv[1] == '--help'):
@@ -28,38 +28,24 @@ download      [version id]  [target] [filter file] - Download a file or files fr
                                                     target directory if it does not exist. Filter file
                                                     specifies files that should not be downloaded, one
                                                     per line and unix wildcards are supported """
-
 else:
+
     # Assemble default configuration
-    config = core.default_config()
-    config = s3.add_default_config(config)
-    config = crypto.add_default_config(config)
+    config = core.default_config(interface)
 
     # Read and merge configuration file
-    args = copy.deepcopy(sys.argv); args.pop(0)
-
     conf_file = 'configuration.json'
     if len(args) > 0 and args[0] == '--c':
         if len(args) < 2: raise SystemExit('Expected argument following --c to be a path to configuration file, nothing found.')
         args.pop(0); conf_file = args.pop(0)
 
     parsed_config = json.loads(sfs.file_get_contents(conf_file))
-    if 'meta_pipeline' in parsed_config and type(parsed_config['meta_pipeline']) != list: raise ValueError('meta_pipeline in conf file mist be a list')
-    if 'file_pipeline' in parsed_config and type(parsed_config['file_pipeline']) != list: raise ValueError('file_pipeline in conf file mist be a list')
-    if 'ignore_files' in parsed_config and type(parsed_config['ignore_files']) != list: raise ValueError('ignore_files in conf file mist be a list')
-    if 'skip_delete' in parsed_config and type(parsed_config['skip_delete']) != list: raise ValueError('skip_delete in conf file mist be a list')
+    core.validate_config(parsed_config)
 
-    def dict_merge(dct, merge_dct): # recursive dict merge from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
-        for k, v in merge_dct.iteritems():
-            if (k in dct and isinstance(dct[k], dict) and isinstance(merge_dct[k], collections.Mapping)):
-                dict_merge(dct[k], merge_dct[k])
-            else: dct[k] = merge_dct[k]
-    dict_merge(config, parsed_config)
+    config = core.merge_config(config, parsed_config)
 
     # Setup the interface and core
-    interface = s3
-    conn = interface.connect(parsed_config)
-
+    conn = interface.connect(config)
     config = pipeline.preprocess_config(interface, conn, config)
     core.init(interface, conn, config)
 

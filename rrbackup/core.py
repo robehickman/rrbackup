@@ -1,20 +1,22 @@
-import functools, hashlib, time, datetime, fnmatch, os, json
+import functools, hashlib, time, datetime, fnmatch, os, json, fcntl
 from copy import deepcopy
 from termcolor import colored
 from pprint import pprint
 #---
 import rrbackup.pipeline as pipeline
+import rrbackup.crypto   as crypto
 import fsutil as sfs
 
 ###################################################################################
-def default_config():
+def default_config(interface):
     """ The default configuration structure. """
-    return { 'base_path'                      : None,             # The root from where the backup is performed
+    conf = { 'base_path'                      : None,             # The root from where the backup is performed
              'remote_manifest_diff_file'      : 'manifest_diffs', # Location of the remote manifest diffs
              'remote_gc_log_file'             : 'gc_log',         # Location of the remote garbage collection log
              'remote_garbage_object_log_file' : 'garbage_objects',# Accumulating log of garbage objects
              'remote_base_path'               : 'files',          # The directory used to store files on S3
-             'local_manifest_file'            : 'manifest',       # Name of the local manifest file
+             'local_manifest_file'            : 'manifest',       # Path and name of the local manifest file
+             'local_lock_file'                : 'rrbackup_lock',  # Path and name of the local lock file
              'chunk_size'                     : 1048576 * 5,      # minimum chunk size is 5MB on s3, 1mb = 1048576
              'read_only'                      : False,            # Disable writing operations
              'write_only'                     : False,            # Disable reading operations
@@ -23,6 +25,26 @@ def default_config():
              'file_pipeline'                  : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
              'ignore_files'                   : [],               # files to ignore
              'skip_delete'                    : []}               # files which should never be deleted from manifest
+
+    conf = interface.add_default_config(conf)
+    return crypto.add_default_config(conf)
+
+###################################################################################
+def validate_config(parsed_config)
+    if 'meta_pipeline' in parsed_config and type(parsed_config['meta_pipeline']) != list: raise ValueError('meta_pipeline in conf file mist be a list')
+    if 'file_pipeline' in parsed_config and type(parsed_config['file_pipeline']) != list: raise ValueError('file_pipeline in conf file mist be a list')
+    if 'ignore_files' in parsed_config and type(parsed_config['ignore_files']) != list: raise ValueError('ignore_files in conf file mist be a list')
+    if 'skip_delete' in parsed_config and type(parsed_config['skip_delete']) != list: raise ValueError('skip_delete in conf file mist be a list')
+
+###################################################################################
+def merge_config(config, parsed_config):
+    def dict_merge(dct, merge_dct): # recursive dict merge from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
+        for k, v in merge_dct.iteritems():
+            if (k in dct and isinstance(dct[k], dict) and isinstance(merge_dct[k], collections.Mapping)):
+                dict_merge(dct[k], merge_dct[k])
+            else: dct[k] = merge_dct[k]
+    dict_merge(config, parsed_config)
+    return config
 
 ###################################################################################
 def new_manifest():
@@ -155,6 +177,13 @@ def backup(interface, conn, config):
 
     if 'read_only' in config and config['read_only'] == True: raise Exception('read only')
 
+    #Local lock for sanity checking
+    lockfile_path = config['local_lock_file']
+    lockfile = open(lockfile_path, 'a')
+    try: fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError: raise SystemExit('Locked by another process')
+
+    #----------
     file_manifest = get_manifest(interface, conn, config)
     current_state, errors = sfs.get_file_list(config['base_path'])
 
@@ -322,6 +351,10 @@ def backup(interface, conn, config):
 
         if need_to_upload != []:
             interface.delete_object(conn, config['remote_gc_log_file'])
+
+        # unlock
+        fcntl.flock(lockfile, fcntl.LOCK_UN)
+        os.remove(lockfile_path)
 
 ###################################################################################
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
