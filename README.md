@@ -10,7 +10,7 @@ First you must create a configuration file "configuration.json", a minimal confi
 {
     "base_path":                 "/path/to/directory/to/back/up",
     "local_manifest_file":       "/path/to/local/manifest",
-
+    "local_lock_file":           "/path/to/rrbackup_lock",
     "s3" : {
         "access_key": "your aws access key",
         "secret_key": "your aws secret key",
@@ -26,6 +26,10 @@ This is the base path of the directory which will be backed up.
 
 * "local\_manifest\_file"  
 Path to the local manifest file. The local manifest is a flat JSON file which stores the state of the files on the last run and is used for change detection. The manifest should not be in the base path as the system would detect it and needlessly back it up.
+
+* "local\_lock\_file"  
+
+Because s3 lacks synchronisation features rrbackup uses flock as a sanity check to prevent multiple clients running simultaneously on the same directory. To prevent write access to multiple clients on multiple computers I recommend creating separate IAM accounts, how to do so is described later.
 
 * "s3" : "access\_key"  
 The access key of the AWS (or IAM) account you wish to back up to.
@@ -294,6 +298,7 @@ The following is a single configuration with all of the options above.
 {
     "base_path":                 "/path/to/directory/to/back/up",
     "local_manifest_file":       "/path/to/local/manifest",
+    "local_lock_file":           "/path/to/rrbackup_lock",
 
     "s3" : {
         "access_key": "your aws access key",
