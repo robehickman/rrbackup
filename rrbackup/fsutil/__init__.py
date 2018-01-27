@@ -88,7 +88,7 @@ def hash_file(file_path, block_size = 65536):
     return sha.hexdigest()
 
 ############################################################################################
-def get_file_list(path):
+def get_file_list(path, ignore_filters = None):
     """ Recursively lists all files in a file system below 'path'. """
     f_list = []
     read_errors = []
@@ -100,14 +100,16 @@ def get_file_list(path):
 
         for fle in files:
             f_path = cpjoin(path, fle)
-            if os.path.isdir(f_path):
-                recur_dir(f_path, cpjoin(newpath, fle))
-            elif os.path.isfile(f_path):
-                try:
-                    open(f_path).close()
-                    f_list.append(get_single_file_info(f_path, cpjoin(newpath, fle)))
-                except IOError:
-                    read_errors.append(f_path)
+
+            if ignore_filters == None or not filter_helper(cpjoin(newpath, fle), ignore_filters):
+                if os.path.isdir(f_path):
+                    recur_dir(f_path, cpjoin(newpath, fle))
+                elif os.path.isfile(f_path):
+                    try:
+                        open(f_path, 'r').close()
+                        f_list.append(get_single_file_info(f_path, cpjoin(newpath, fle)))
+                    except IOError:
+                        read_errors.append(f_path)
 
     recur_dir(path)
     return f_list, read_errors

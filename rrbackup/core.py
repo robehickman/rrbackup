@@ -187,11 +187,11 @@ def backup(interface, conn, config):
 
     #----------
     file_manifest = get_manifest(interface, conn, config)
-    current_state, errors = sfs.get_file_list(config['base_path'])
+    current_state, errors = sfs.get_file_list(config['base_path'], config['ignore_files'])
 
     # filter ignore files
-    current_state = sfs.filter_file_list(current_state, config['ignore_files'])
-    errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
+    #current_state = sfs.filter_file_list(current_state, config['ignore_files'])
+    #errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
 
     if errors != []:
         for e in errors: print colored('Could not read ' + e['path'], 'red') 
