@@ -132,7 +132,7 @@ class streaming_upload:
 
     def begin(self, conn, key):
         self.client = conn['client']; self.bucket = conn['bucket']; self.key = key 
-        self.mpu = self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key)
+        self.mpu = self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key, StorageClass='STANDARD_IA')
         self.part_id = 1; self.part_info = {'Parts': []}; self.uid = self.mpu['UploadId'];
 
     def next_chunk(self, chunk):
