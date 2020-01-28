@@ -174,6 +174,11 @@ def get_manifest(interface, conn, config):
         else: return new_manifest() # No manifest exists on s3
 
 ###################################################################################
+from itertools import izip, chain, repeat
+def grouper(n, iterable, padvalue=None):
+    "grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')"
+    return izip(*[chain(iterable, repeat(padvalue, n-1))]*n)
+
 def backup(interface, conn, config):
     """ To store data, diff file changes, upload changes and store the diff """
 
@@ -197,162 +202,169 @@ def backup(interface, conn, config):
         for e in errors: print colored('Could not read ' + e['path'], 'red') 
         print '--------------'
 
-
     #Find and process changes
     diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
 
     if diff !={}:
-        diff = [change for p, change in diff.iteritems()]
-        diff = sfs.hash_new_files(diff, config['base_path'])
-        #-------
-        # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
-        # Be careful if this is re-enabled to handle the 'empty' flag correctly
-        #-------
-        #diff = sfs.detect_moved_files(file_manifest, diff)
-        #-------
-        diff = sorted(diff,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
+        diff2 = [change for p, change in diff.iteritems()]
 
-        # for de-duplication index hashes from the previous manifest
-        hash_index = {f['hash'] : f for f in file_manifest['files']}
+        # split diff into chunks to handle large uploads
+        diff_chunks = [diff2]#grouper(100, diff2)
 
-        need_to_upload = []; new_diff = []; new_duplicates = [] # these must be assigned to different lists!
-        for change in diff:
-            if change['status'] in ['new', 'changed']:
-                msg = colored('Adding: ' + change['path'], 'green')
+        for diff3 in diff_chunks:
 
-                # If the hash already exists in the previous manifest or has been seen already in the current run
-                # file been moved or is a duplicate, don't need to upload again
-                if change['hash'] in hash_index :
-                    msg += colored(' (De-duplicated)', 'yellow')
+            diff = [x for x in diff3 if x is not None] #grouper inserts none if there are insufficient elements to make a full group, need to strip
 
-                    it = hash_index[change['hash']]
-                    if 'empty' in it:
-                        change['empty'] = True
-                        new_diff.append(change)
-                    elif 'name_hashed' in it:
-                        change['name_hashed'] = it['name_hashed']
-                        change['real_path']   = it['real_path']
-                        change['version_id']  = it['version_id']
-                        new_diff.append(change)
-                    else: # new duplicates need to be handled specially as the above metadata does not exist yet
-                        new_duplicates.append(change)
+            diff = sfs.hash_new_files(diff, config['base_path'])
+            #-------
+            # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
+            # Be careful if this is re-enabled to handle the 'empty' flag correctly
+            #-------
+            #diff = sfs.detect_moved_files(file_manifest, diff)
+            #-------
+            diff = sorted(diff,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
+
+            # for de-duplication index hashes from the previous manifest
+            hash_index = {f['hash'] : f for f in file_manifest['files']}
+
+            need_to_upload = []; new_diff = []; new_duplicates = [] # these must be assigned to different lists!
+            for change in diff:
+                if change['status'] in ['new', 'changed']:
+                    msg = colored('Adding: ' + change['path'], 'green')
+
+                    # If the hash already exists in the previous manifest or has been seen already in the current run
+                    # file been moved or is a duplicate, don't need to upload again
+                    if change['hash'] in hash_index :
+                        msg += colored(' (De-duplicated)', 'yellow')
+
+                        it = hash_index[change['hash']]
+                        if 'empty' in it:
+                            change['empty'] = True
+                            new_diff.append(change)
+                        elif 'name_hashed' in it:
+                            change['name_hashed'] = it['name_hashed']
+                            change['real_path']   = it['real_path']
+                            change['version_id']  = it['version_id']
+                            new_diff.append(change)
+                        else: # new duplicates need to be handled specially as the above metadata does not exist yet
+                            new_duplicates.append(change)
+                    else:
+                        need_to_upload.append(change)
+                        hash_index[change['hash']] = change
+                    print msg
+
+                elif change['status'] == 'moved':
+                    # Moves store the name of the new file but to save space store a pointer to the old file
+                    # on the remote. Store as is as details handled by 'detect_moved_files()'.
+                    print colored('Moving: ' + change['path'], 'yellow') 
+                    new_diff.append(change)
+
+                elif change['status'] == 'deleted':
+                    # skip delete feature
+                    if sfs.filter_helper(change['path'], config['skip_delete']): continue
+
+                    # Delete only removes the file from the manifest, the object needs to remain as it
+                    # is referenced by prior versions
+                    print colored('Deleting: ' + change['path'], 'red') 
+                    new_diff.append(change)
+
+            print '--------------'
+
+            # For garbage collection of failed uploads, log new and changed items to s3
+            if need_to_upload != []:
+                gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
+                meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+                gc_log = pl_out(json.dumps(gc_changes), meta, config)
+
+            #--
+            new_uploads = {}
+            for change in need_to_upload:
+                fspath = sfs.cpjoin(config['base_path'], change['path'])
+
+                # handle empty files
+                if os.stat(fspath).st_size == 0:
+                    print colored('Warning, empty file: ' + change['path'], 'red')
+                    change['empty'] = True
+                    new_diff.append(change);
+
+                     # also log to new uploads so duplicates of these files can be referenced correctly below
+                    new_uploads[change['hash']] = change
+
+                # normal files
                 else:
-                    need_to_upload.append(change)
-                    hash_index[change['hash']] = change
-                print msg
+                    print colored('Uploading: ' + change['path'], 'green')
 
-            elif change['status'] == 'moved':
-                # Moves store the name of the new file but to save space store a pointer to the old file
-                # on the remote. Store as is as details handled by 'detect_moved_files()'.
-                print colored('Moving: ' + change['path'], 'yellow') 
-                new_diff.append(change)
+                    #Determine the correct pipeline format to use for this file from the configuration
+                    try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
+                    except StopIteration: raise('No pipeline format matches ' + change['path'])
 
-            elif change['status'] == 'deleted':
-                # skip delete feature
-                if sfs.filter_helper(change['path'], config['skip_delete']): continue
+                    # Get remote file name and implementation of hash path
+                    path_hash = hashlib.sha256(change['path'].encode('utf8')).hexdigest() if 'hash_names' in matched_plf else change['path']
+                    remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
 
-                # Delete only removes the file from the manifest, the object needs to remain as it
-                # is referenced by prior versions
-                print colored('Deleting: ' + change['path'], 'red') 
-                new_diff.append(change)
+                    #----
+                    pl_format = pipeline.get_default_pipeline_format()
+                    pl_format['chunk_size'] = config['chunk_size']
+                    pl_format['format'] = {i : None for i in matched_plf}
+                    if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
 
-        print '--------------'
+                    #-----
+                    upload = interface.streaming_upload()
+                    pl     = pipeline.build_pipeline_streaming(upload, 'out')
 
-        # For garbage collection of failed uploads, log new and changed items to s3
-        if need_to_upload != []:
-            gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
-            meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-            gc_log = pl_out(json.dumps(gc_changes), meta, config)
+                    pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
 
-        #--
-        new_uploads = {}
-        for change in need_to_upload:
-            fspath = sfs.cpjoin(config['base_path'], change['path'])
+                    upload.begin(conn, remote_path, )
+                    with open(fspath, 'rb') as fle:
+                        while True:
+                            chunk = fle.read(config['chunk_size'])
+                            if chunk == "": break
+                            pl.next_chunk(chunk)
 
-            # handle empty files
-            if os.stat(fspath).st_size == 0:
-                print colored('Warning, empty file: ' + change['path'], 'red')
-                change['empty'] = True
-                new_diff.append(change);
+                    res = upload.finish()
 
-                 # also log to new uploads so duplicates of these files can be referenced correctly below
-                new_uploads[change['hash']] = change
+                    change['name_hashed'] = 'hash_names' in matched_plf
+                    change['real_path']   = change['path']
+                    change['version_id']  = res['VersionId']
+                    new_diff.append(change);
 
-            # normal files
-            else:
-                print colored('Uploading: ' + change['path'], 'green')
+                     # also log to new uploads so duplicates of these files can be referenced correctly below
+                    new_uploads[change['hash']] = change
 
-                #Determine the correct pipeline format to use for this file from the configuration
-                try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
-                except StopIteration: raise('No pipeline format matches ' + change['path'])
+            print '------------------'
 
-                # Get remote file name and implementation of hash path
-                path_hash = hashlib.sha256(change['path']).hexdigest() if 'hash_names' in matched_plf else change['path']
-                remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
+            # process duplicates of new files
+            for change in new_duplicates:
+                it = new_uploads[change['hash']]
+                if 'empty' in it:
+                    change['empty'] = True
+                    new_diff.append(change)
+                else:
+                    change['name_hashed'] = it['name_hashed']
+                    change['real_path']   = it['real_path']
+                    change['version_id']  = it['version_id']
+                    new_diff.append(change)
 
-                #----
-                pl_format = pipeline.get_default_pipeline_format()
-                pl_format['chunk_size'] = config['chunk_size']
-                pl_format['format'] = {i : None for i in matched_plf}
-                if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
+            # upload the diff
+            meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+            meta2 = pl_out(json.dumps(new_diff), meta, config)
 
-                #-----
-                upload = interface.streaming_upload()
-                pl     = pipeline.build_pipeline_streaming(upload, 'out')
+            # for some reason have to get the key again to obtain it's time stamp
+            k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
 
-                pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
+            # apply the diff to the local manifest and update it
+            file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
+            file_manifest['latest_remote_diff'] = {'version_id' : k['version_id'], 'last_modified' : k['last_modified'].isoformat()}
 
-                upload.begin(conn, remote_path, )
-                with open(fspath, 'rb') as fle:
-                    while True:
-                        chunk = fle.read(config['chunk_size'])
-                        if chunk == "": break
-                        pl.next_chunk(chunk)
+            # Write and move for atomicity
+            sfs.file_put_contents(config['local_manifest_file']+'.tmp', json.dumps(file_manifest))
+            os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
 
-                res = upload.finish()
+            # delete the garbage collection log
+            #time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
 
-                change['name_hashed'] = 'hash_names' in matched_plf
-                change['real_path']   = change['path']
-                change['version_id']  = res['VersionId']
-                new_diff.append(change);
-
-                 # also log to new uploads so duplicates of these files can be referenced correctly below
-                new_uploads[change['hash']] = change
-
-        print '------------------'
-
-        # process duplicates of new files
-        for change in new_duplicates:
-            it = new_uploads[change['hash']]
-            if 'empty' in it:
-                change['empty'] = True
-                new_diff.append(change)
-            else:
-                change['name_hashed'] = it['name_hashed']
-                change['real_path']   = it['real_path']
-                change['version_id']  = it['version_id']
-                new_diff.append(change)
-
-        # upload the diff
-        meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-        meta2 = pl_out(json.dumps(new_diff), meta, config)
-
-        # for some reason have to get the key again to obtain it's time stamp
-        k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
-
-        # apply the diff to the local manifest and update it
-        file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
-        file_manifest['latest_remote_diff'] = {'version_id' : k['version_id'], 'last_modified' : k['last_modified'].isoformat()}
-
-        # Write and move for atomicity
-        sfs.file_put_contents(config['local_manifest_file']+'.tmp', json.dumps(file_manifest))
-        os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
-
-        # delete the garbage collection log
-        #time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
-
-        if need_to_upload != []:
-            interface.delete_object(conn, config['remote_gc_log_file'])
+            if need_to_upload != []:
+                interface.delete_object(conn, config['remote_gc_log_file'])
 
         # unlock
         fcntl.flock(lockfile, fcntl.LOCK_UN)
@@ -383,7 +395,7 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
         if 'empty' in fle:
             open(dest, 'a').close()
         else:
-            path_hash = hashlib.sha256(fle['real_path']).hexdigest() if fle['name_hashed'] == True else fle['real_path']
+            path_hash = hashlib.sha256(fle['real_path'].encode('utf8')).hexdigest() if fle['name_hashed'] == True else fle['real_path']
             remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
 
             download          = interface.streaming_download()
@@ -431,13 +443,21 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
         garbage_objects = []
         for item in gc_log:
-            path_hash = hashlib.sha256(item['path']).hexdigest()
+            path_hash = hashlib.sha256(item['path'].encode('utf8')).hexdigest()
             remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
             vers = interface.list_versions(conn, remote_path)
 
+
+
             #if this exists in the previous manifest, see if a newer version exists, if so it is garbage
             if item['path'] in index:
-                if vers[-1]['VersionId'] != index[item['path']]['version_id'] and vers[-1]['LastModified'] >= gc_log_meta['last_modified']:
+
+                # As empty files don't actually get stored on the remote, we don't need to do anything
+                # to clean them up if we find one in the GC log.
+                if 'empty' in index[item['path']] and index[item['path']]['empty'] == True:
+                    pass
+
+                elif vers[-1]['VersionId'] != index[item['path']]['version_id'] and vers[-1]['LastModified'] >= gc_log_meta['last_modified']:
                     garbage_objects.append((vers[-1]['Key'], vers[-1]['VersionId']))
 
             # if it does not exist in the prior manifest it's a new addition so the latest version is garbage
@@ -493,7 +513,7 @@ def varify_manifest(interface, conn, config):
     manifest_referanced_objects = {}
     for diff in get_remote_manifest_diffs(interface, conn, config):
         for fle in json.loads(diff['body']):
-            path_hash = hashlib.sha256(fle['real_path']).hexdigest()
+            path_hash = hashlib.sha256(fle['real_path'].encode('utf8')).hexdigest()
             real_path = sfs.cpjoin(config['remote_base_path'], path_hash)
             version_id = fle['version_id']
             if (real_path, version_id) not in manifest_referanced_objects:
