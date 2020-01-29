@@ -143,6 +143,13 @@ class streaming_upload:
         self.part_info['Parts'].append({'PartNumber': self.part_id, 'ETag': part['ETag']})
         self.part_id += 1
 
+    def abort(self):
+        return self.client.abort_multipart_upload(
+            Bucket=self.bucket,
+            Key=self.key,
+            UploadId=self.uid
+        )
+
     def finish(self):
         return self.client.complete_multipart_upload(Bucket=self.bucket, Key=self.key,
             UploadId=self.uid, MultipartUpload=self.part_info)

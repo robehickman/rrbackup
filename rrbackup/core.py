@@ -209,7 +209,7 @@ def backup(interface, conn, config):
         diff2 = [change for p, change in diff.iteritems()]
 
         # split diff into chunks to handle large uploads
-        diff_chunks = [diff2]#grouper(100, diff2)
+        diff_chunks = grouper(100, diff2)
 
         for diff3 in diff_chunks:
 
@@ -281,8 +281,14 @@ def backup(interface, conn, config):
             for change in need_to_upload:
                 fspath = sfs.cpjoin(config['base_path'], change['path'])
 
+                try:
+                    stat_result = os.stat(fspath)
+                except OSError:
+                    # If file no longer exists at this stage assume it has been deleted and ignore it
+                    continue 
+
                 # handle empty files
-                if os.stat(fspath).st_size == 0:
+                if stat_result.st_size == 0:
                     print colored('Warning, empty file: ' + change['path'], 'red')
                     change['empty'] = True
                     new_diff.append(change);
@@ -315,13 +321,20 @@ def backup(interface, conn, config):
                     pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
 
                     upload.begin(conn, remote_path, )
-                    with open(fspath, 'rb') as fle:
-                        while True:
-                            chunk = fle.read(config['chunk_size'])
-                            if chunk == "": break
-                            pl.next_chunk(chunk)
 
-                    res = upload.finish()
+                    try:
+                        with open(fspath, 'rb') as fle:
+                            while True:
+                                chunk = fle.read(config['chunk_size'])
+                                if chunk == "": break
+                                pl.next_chunk(chunk)
+                        res = upload.finish()
+
+                    except IOError: 
+                        # If file no longer exists at this stage assume it has been deleted and ignore it
+                        upload.abort()
+                        continue
+
 
                     change['name_hashed'] = 'hash_names' in matched_plf
                     change['real_path']   = change['path']
