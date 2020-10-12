@@ -1,4 +1,5 @@
-import boto3, struct, pprint, pipeline
+import boto3, struct, pprint
+import rrbackup.pipeline as pipeline
 
 def add_default_config(config):
     config["s3"] = { "access_key": "",
@@ -15,7 +16,7 @@ def connect(config):
     client = boto3.client( 's3', aws_access_key_id=access_key, aws_secret_access_key=secret_key)
     bucket_versioning = client.get_bucket_versioning(Bucket=config['s3']['bucket'])
     if bucket_versioning['Status'] != 'Enabled':
-        print 'Bucket versioning must be enabled, attempting to enable, please restart application'
+        print('Bucket versioning must be enabled, attempting to enable, please restart application')
         client.put_bucket_versioning(Bucket=bucket, VersioningConfiguration={'Status': 'Enabled' })
         raise SystemExit(0)
     return {'client' : client, 'bucket' : config['s3']['bucket']}
@@ -159,14 +160,14 @@ def delete_failed_uploads(conn):
     uploads = conn['client'].list_multipart_uploads(Bucket=conn['bucket'])
     if uploads['IsTruncated'] != False: raise Exception('Unhandled truncated result set')
     if 'Uploads' in uploads:
-        print 'Deleting failed multipart uploads'
+        print('Deleting failed multipart uploads')
         for u in uploads['Uploads']:
-            print 'Deleting failed upload: '+u['Key']
+            print('Deleting failed upload: '+u['Key'])
             conn['client'].abort_multipart_upload(
                 Bucket=conn['bucket'],
                 Key=u['Key'],
                 UploadId=u['UploadId'])
-        print '------------------------'
+        print('------------------------')
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 class streaming_download:

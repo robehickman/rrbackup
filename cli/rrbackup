@@ -10,7 +10,7 @@ args = copy.deepcopy(sys.argv); args.pop(0)
 
 #++++++++++++++++++++++++
 if len(sys.argv) > 1 and (sys.argv[1] == '-h' or sys.argv[1] == '--help'):
-    print """
+    print("""
 Robert's Remote Backup, backup a directory with change history.
 
 Prefix arguments:
@@ -25,7 +25,7 @@ list_changes  [version_id]                         - List what has changed in th
 download      [version id]  [target] [filter file] - Download a file or files from the backup, creates
                                                     target directory if it does not exist. Filter file
                                                     specifies files that should not be downloaded, one
-                                                    per line and unix wildcards are supported """
+                                                    per line and unix wildcards are supported """)
 else:
 
     # Assemble default configuration
@@ -49,7 +49,7 @@ else:
 
     #++++++++++++++++++++++++
     if len(args) == 0:
-        print 'Running backup'
+        print('Running backup')
         core.backup(interface, conn, config)
 
     #++++++++++++++++++++++++
@@ -57,18 +57,18 @@ else:
         if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
 
         versions = core.get_remote_manifest_versions(interface, conn, config)
-        print '\nDate and time         : Version ID\n'
+        print('\nDate and time         : Version ID\n')
         for vers in versions:
             timestr = vers['LastModified'].strftime('%d %b %Y %X')
-            print timestr + ' : ' + vers['VersionId']
-        print
+            print(timestr + ' : ' + vers['VersionId'])
+        print()
 
     #++++++++++++++++++++++++
     elif args[0] == 'list_files':
         if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
 
         if len(args) < 2:
-            print "You must provide a Version ID, see help (-h)"; quit()
+            print("You must provide a Version ID, see help (-h)"); quit()
 
         versions = core.get_remote_manifest_diffs(interface, conn, config)
 
@@ -77,37 +77,37 @@ else:
         manifest['files'] = sorted(manifest['files'], key=lambda fle:
             (os.path.dirname(fle['path']), os.path.basename(fle['path'])))
 
-        print
+        print()
         for fle in manifest['files']:
-            print fle['path']
-        print
+            print(fle['path'])
+        print()
 
     #++++++++++++++++++++++++
     elif args[0] == 'list_changes':
         if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
 
         if len(args) < 2:
-            print "You must provide a Version ID, see help (-h)"; quit()
+            print("You must provide a Version ID, see help (-h)"); quit()
 
         diff = core.get_remote_manifest_diff(interface, conn, config, args[1])['body']
 
-        print
+        print()
         for change in diff:
             if change['status'] == 'moved':
-                print change['status'].capitalize() + ': ' + change['moved_from']
-                print '   To: ' + change['path']
+                print(change['status'].capitalize() + ': ' + change['moved_from'])
+                print('   To: ' + change['path'])
             else:
-                print change['status'].capitalize() + ': ' + change['path']
-        print
+                print(change['status'].capitalize() + ': ' + change['path'])
+        print()
 
 
     #++++++++++++++++++++++++
     elif args[0] == 'download':
         if len(args) < 2:
-            print "You must provide a Version ID, see help (-h)"; quit()
+            print("You must provide a Version ID, see help (-h)"); quit()
 
         if len(args) < 3:
-            print "You must provide a target directory, see help (-h)"; quit()
+            print("You must provide a target directory, see help (-h)"); quit()
 
         ignore_filters = None
         if len(args) > 3:
@@ -117,4 +117,4 @@ else:
         core.download(interface, conn, config, args[1], args[2], ignore_filters)
 
     else:
-        print 'Unknown command'
+        print('Unknown command')

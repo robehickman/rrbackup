@@ -6,7 +6,7 @@ from pprint import pprint
 #---
 import rrbackup.pipeline as pipeline
 import rrbackup.crypto   as crypto
-import fsutil as sfs
+from . import fsutil as sfs
 
 ###################################################################################
 def default_config(interface):
@@ -40,7 +40,7 @@ def validate_config(parsed_config):
 ###################################################################################
 def merge_config(config, parsed_config):
     def dict_merge(dct, merge_dct): # recursive dict merge from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
-        for k, v in merge_dct.iteritems():
+        for k, v in merge_dct.items():
             if (k in dct and isinstance(dct[k], dict) and isinstance(merge_dct[k], collections.Mapping)):
                 dict_merge(dct[k], merge_dct[k])
             else: dct[k] = merge_dct[k]
@@ -151,7 +151,7 @@ def get_manifest(interface, conn, config):
             if remote_diff_time > local_manifest_time:
                 diffs = get_remote_manifest_diffs(interface, conn, config)
                 if local_manifest_time == diffs[-2]['meta']['last_modified'].replace(tzinfo=None):
-                    print 'Remote is one diff ahead of local, updating local manifest'
+                    print('Remote is one diff ahead of local, updating local manifest')
                     new_diff = json.loads(diffs[-1]['body'])
                     file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
 
@@ -174,10 +174,10 @@ def get_manifest(interface, conn, config):
         else: return new_manifest() # No manifest exists on s3
 
 ###################################################################################
-from itertools import izip, chain, repeat
+from itertools import chain, repeat
 def grouper(n, iterable, padvalue=None):
     "grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')"
-    return izip(*[chain(iterable, repeat(padvalue, n-1))]*n)
+    return zip(*[chain(iterable, repeat(padvalue, n-1))]*n)
 
 def backup(interface, conn, config):
     """ To store data, diff file changes, upload changes and store the diff """
@@ -199,14 +199,14 @@ def backup(interface, conn, config):
     #errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
 
     if errors != []:
-        for e in errors: print colored('Could not read ' + e['path'], 'red') 
-        print '--------------'
+        for e in errors: print(colored('Could not read ' + e['path'], 'red')) 
+        print('--------------')
 
     #Find and process changes
     diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
 
     if diff !={}:
-        diff2 = [change for p, change in diff.iteritems()]
+        diff2 = [change for p, change in diff.items()]
 
         # split diff into chunks to handle large uploads
         diff_chunks = grouper(100, diff2)
@@ -251,12 +251,12 @@ def backup(interface, conn, config):
                     else:
                         need_to_upload.append(change)
                         hash_index[change['hash']] = change
-                    print msg
+                    print(msg)
 
                 elif change['status'] == 'moved':
                     # Moves store the name of the new file but to save space store a pointer to the old file
                     # on the remote. Store as is as details handled by 'detect_moved_files()'.
-                    print colored('Moving: ' + change['path'], 'yellow') 
+                    print(colored('Moving: ' + change['path'], 'yellow')) 
                     new_diff.append(change)
 
                 elif change['status'] == 'deleted':
@@ -265,10 +265,10 @@ def backup(interface, conn, config):
 
                     # Delete only removes the file from the manifest, the object needs to remain as it
                     # is referenced by prior versions
-                    print colored('Deleting: ' + change['path'], 'red') 
+                    print(colored('Deleting: ' + change['path'], 'red')) 
                     new_diff.append(change)
 
-            print '--------------'
+            print('--------------')
 
             # For garbage collection of failed uploads, log new and changed items to s3
             if need_to_upload != []:
@@ -289,7 +289,7 @@ def backup(interface, conn, config):
 
                 # handle empty files
                 if stat_result.st_size == 0:
-                    print colored('Warning, empty file: ' + change['path'], 'red')
+                    print(colored('Warning, empty file: ' + change['path'], 'red'))
                     change['empty'] = True
                     new_diff.append(change);
 
@@ -298,11 +298,11 @@ def backup(interface, conn, config):
 
                 # normal files
                 else:
-                    print colored('Uploading: ' + change['path'], 'green')
+                    print(colored('Uploading: ' + change['path'], 'green'))
 
                     #Determine the correct pipeline format to use for this file from the configuration
                     try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
-                    except StopIteration: raise('No pipeline format matches ' + change['path'])
+                    except StopIteration: raise 'No pipeline format matches '
 
                     # Get remote file name and implementation of hash path
                     path_hash = hashlib.sha256(change['path'].encode('utf8')).hexdigest() if 'hash_names' in matched_plf else change['path']
@@ -344,7 +344,7 @@ def backup(interface, conn, config):
                      # also log to new uploads so duplicates of these files can be referenced correctly below
                     new_uploads[change['hash']] = change
 
-            print '------------------'
+            print('------------------')
 
             # process duplicates of new files
             for change in new_duplicates:
@@ -401,7 +401,7 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
 
     # download the objects in the manifest
     for fle in file_manifest['files']:
-        print 'Downloading: ' + fle['path']
+        print('Downloading: ' + fle['path'])
 
         dest = sfs.cpjoin(target_directory, fle['path'])
 
@@ -492,11 +492,11 @@ def garbage_collect(interface, conn, config, mode='simple'):
     # else append them onto the garbage object log.
     if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
         for item in garbage_objects:
-            print colored('Deleting garbage object: ' + str(item) , 'red')
+            print(colored('Deleting garbage object: ' + str(item) , 'red'))
             interface.delete_object(conn, item[0], version_id = item[1])
     else:
         for item in garbage_objects:
-            print colored('Appending to garbage object log: ' + str(item) , 'red')
+            print(colored('Appending to garbage object log: ' + str(item) , 'red'))
 
         meta = {'path'       : config['remote_garbage_object_log_file'],
                 'version_id' : None,
@@ -533,16 +533,16 @@ def varify_manifest(interface, conn, config):
                 manifest_referanced_objects[(real_path, version_id)] = None
 
     #Add the remote manifest diffs themselves, gc log and salt file as they are not garbage
-    for k in all_objects.iterkeys():
+    for k in all_objects.keys():
         if k[0] in ['salt_file', config['remote_gc_log_file'], config['remote_manifest_diff_file']]:
             manifest_referanced_objects[k] = None
 
     # Remove objects referenced in the manifest
     missing_objects = []
-    for k in manifest_referanced_objects.iterkeys():
+    for k in manifest_referanced_objects.keys():
         if k not in all_objects: missing_objects.append(k)
         else: del all_objects[k]
 
-    garbage_objects = [o for o in all_objects.iterkeys()]
+    garbage_objects = [o for o in all_objects.keys()]
     return missing_objects, garbage_objects
 

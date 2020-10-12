@@ -1,4 +1,5 @@
-import pysodium, binascii, base64, pipeline, pprint
+import pysodium, binascii, base64, pprint
+import rrbackup.pipeline
 
 def add_default_config(config):
     """ The default configuration structure. """

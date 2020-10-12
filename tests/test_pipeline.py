@@ -95,7 +95,7 @@ class test_pipeline(unittest.TestCase):
     def test_streaming_pipeline_org(self):
         return #disabled for the time being
         crypt_key = pysodium.crypto_secretstream_xchacha20poly1305_keygen()
-        print 'upload...'
+        print('upload...')
         upload = streaming_upload(client, bucket, key)
         crpt = encrypter(upload, crypt_key)
 
@@ -112,7 +112,7 @@ class test_pipeline(unittest.TestCase):
         res = upload.finish()
 
         #---------------
-        print 'download...'
+        print('download...')
         download = streaming_download(client, bucket, key, chunk_size)
         dcrpt = decrypter(download, crypt_key)
 

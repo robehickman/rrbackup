@@ -3,7 +3,9 @@ When data is uploaded or downloaded an arbitrary set of transformations
 may be applied to the data in transit including encryption. This file
 assembles pipelines to apply these transformations depending on configuration.
 """
-import crypto, compress, functools, json, re
+import functools, json, re
+import rrbackup.crypto as crypto
+import rrbackup.compress as compress
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def preprocess_config(interface, conn, config):
@@ -36,7 +38,7 @@ def serialise_pipeline_format(pl_format):
         to_json['S'] = str(pl_format['chunk_size'])
 
     for i in pl_format['format']:
-        if not (type(i) == unicode or type(i) == str):
+        if not (type(i) == str or type(i) == str):
             raise TypeError('Format specifiers must be strings')
 
         if type(pl_format['format'][i]) == dict:  to_json[serialise_mapper[i]] = pl_format['format'][i]
@@ -56,8 +58,8 @@ def parse_pipeline_format(serialised_pl_format):
     try: pl_format['chunk_size'] = int(raw.pop('S'))
     except: pass
 
-    inv_map = {v: k for k, v in serialise_mapper.iteritems()}
-    for k, v in raw.iteritems():
+    inv_map = {v: k for k, v in serialise_mapper.items()}
+    for k, v in raw.items():
         if v == '': pl_format['format'][inv_map[k.encode('utf8')]] = None
         elif type(v) == dict: pl_format['format'][inv_map[k.encode('utf8')]] = v
         else: raise ValueError('Unknown type in serialised pipeline format')

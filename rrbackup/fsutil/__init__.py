@@ -4,7 +4,7 @@ from collections import defaultdict
 ############################################################################################
 def force_unicode(text):
     """ Encodes a string as UTF-8 if it isn't already """
-    try: return unicode(text, 'utf-8')
+    try: return str(text, 'utf-8')
     except TypeError: return text
 
 ############################################################################################
@@ -34,7 +34,7 @@ def allowed_path(path):
     for x in udir:
         if(x == '..'):
             e = '.. in file paths not aloud'
-            print e; raise Exception(e)
+            print(e); raise Exception(e)
 
 ############################################################################################
 def ensure_extension(path, ext):
@@ -147,7 +147,7 @@ def find_manifest_changes(new_file_state, old_file_state):
             changed_files[itm['path']] = n_itm
 
     # any files remaining in the remote manifest have been deleted locally
-    for key, itm in prev_state_dict.iteritems():
+    for key, itm in prev_state_dict.items():
         n_itm = itm.copy()
         n_itm['status'] = 'deleted'
         changed_files[itm['path']] = n_itm
@@ -165,47 +165,47 @@ def hash_new_files(diff, base_path):
     return processed_files
 
 ############################################################################################
-def detect_moved_files(file_manifest, diff):
-    """ Detect files that have been moved """
-    previous_hashes = defaultdict(set)
-    for item in file_manifest['files']: previous_hashes[item['hash']].add(item['path'])
-    diff_dict = make_dict(diff)
-
-    # files with duplicate hashes are assumed to have the same contents
-    moved_files = {}
-    not_found = []
-    for val in diff:
-        if val['status'] == 'new' and val['hash'] in previous_hashes:
-            found = None; prev_filtered = []
-            for itm in previous_hashes[val['hash']]:
-                if itm.split('/')[-1] == val['path'].split('/')[-1]: found = itm; break
-
-            if found != None and found in diff_dict and diff_dict[found]['status'] == 'delete':
-                previous_hashes[val['hash']].remove(found)
-                moved_files[val['path']] = {'from' : found, 'to'   : val['path']}
-            else: not_found.append(val)
-
-    # At this point all duplicate items which have been moved but which retain the original name
-    # have been removed from there relevant set. Remaining items are assigned on an ad-hoc basis.
-    # As there hashes are the same, there contents is assumed to be the same so mis-assignments
-    # are not very important.
-    for val in not_found:
-        itm = previous_hashes[val['hash']].pop()
-        if itm in diff_dict and diff_dict[itm]['status'] == 'delete':
-            moved_files[val['path']] = {'from' : itm, 'to'   : val['path']}
-
-    # Replace separate 'new' and 'delete' with a single 'moved' command.
-    for key, value in moved_files.iteritems():
-        moved_from = diff_dict.pop(value['from']) # remove the delete from the diff
-        moved_to   = diff_dict[value['to']]
-        diff_dict[value['to']]                   = moved_from     # start with where the file was moved from
-        diff_dict[value['to']]['status']         = 'moved'
-        diff_dict[value['to']]['moved_from']     = value['from']
-        diff_dict[value['to']]['path']           = moved_to['path']  # Copy the moved path
-        diff_dict[value['to']]['created']        = moved_to['created']  # Copy 'created' from the moved file
-        diff_dict[value['to']]['last_mod']       = moved_to['last_mod']  # Copy last_mod from the moved file
-
-    return [change for p, change in diff_dict.iteritems()]
+#def detect_moved_files(file_manifest, diff):
+#    """ Detect files that have been moved """
+#    previous_hashes = defaultdict(set)
+#    for item in file_manifest['files']: previous_hashes[item['hash']].add(item['path'])
+#    diff_dict = make_dict(diff)
+#
+#    # files with duplicate hashes are assumed to have the same contents
+#    moved_files = {}
+#    not_found = []
+#    for val in diff:
+#        if val['status'] == 'new' and val['hash'] in previous_hashes:
+#            found = None; prev_filtered = []
+#            for itm in previous_hashes[val['hash']]:
+#                if itm.split('/')[-1] == val['path'].split('/')[-1]: found = itm; break
+#
+#            if found != None and found in diff_dict and diff_dict[found]['status'] == 'delete':
+#                previous_hashes[val['hash']].remove(found)
+#                moved_files[val['path']] = {'from' : found, 'to'   : val['path']}
+#            else: not_found.append(val)
+#
+#    # At this point all duplicate items which have been moved but which retain the original name
+#    # have been removed from there relevant set. Remaining items are assigned on an ad-hoc basis.
+#    # As there hashes are the same, there contents is assumed to be the same so mis-assignments
+#    # are not very important.
+#    for val in not_found:
+#        itm = previous_hashes[val['hash']].pop()
+#        if itm in diff_dict and diff_dict[itm]['status'] == 'delete':
+#            moved_files[val['path']] = {'from' : itm, 'to'   : val['path']}
+#
+#    # Replace separate 'new' and 'delete' with a single 'moved' command.
+#    for key, value in moved_files.items():
+#        moved_from = diff_dict.pop(value['from']) # remove the delete from the diff
+#        moved_to   = diff_dict[value['to']]
+#        diff_dict[value['to']]                   = moved_from     # start with where the file was moved from
+#        diff_dict[value['to']]['status']         = 'moved'
+#        diff_dict[value['to']]['moved_from']     = value['from']
+#        diff_dict[value['to']]['path']           = moved_to['path']  # Copy the moved path
+#        diff_dict[value['to']]['created']        = moved_to['created']  # Copy 'created' from the moved file
+#        diff_dict[value['to']]['last_mod']       = moved_to['last_mod']  # Copy last_mod from the moved file
+#
+#    return [change for p, change in diff_dict.items()]
 
 ###########################################################################################
 def apply_diffs(diffs, manifest):
@@ -215,7 +215,7 @@ def apply_diffs(diffs, manifest):
     manifest = copy.deepcopy(manifest)
 
     # helper which removes the 'status' key from a diff
-    key_filter = lambda item : { key : value for key, value in item.iteritems() if key != 'status'}
+    key_filter = lambda item : { key : value for key, value in item.items() if key != 'status'}
 
     for diff in diffs:
         # dict used to find duplicate items between the diff and manifest
@@ -280,9 +280,9 @@ def apply_ignore_filters(f_list):
             lines = f_file.splitlines()
             filters = filters + lines
         except:
-            print 'Warning: filters file does not exist'
+            print('Warning: filters file does not exist')
     except NameError:
-        print 'Warning: configuration var IGNORE_FILTER_FILE is not defined'
+        print('Warning: configuration var IGNORE_FILTER_FILE is not defined')
     
     try:
         filters.append('/' + MANIFEST_FILE)
