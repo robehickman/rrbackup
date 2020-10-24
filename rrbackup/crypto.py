@@ -1,16 +1,17 @@
 import pysodium, binascii, base64, pprint
 import rrbackup.pipeline
 
-def add_default_config(config):
+def add_default_config(config: dict):
     """ The default configuration structure. """
     config['crypto'] =  {'remote_password_salt_file'  : 'salt_file',  # Remote file used to store the password salt
                          'crypt_password'             : None }
     return config
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
-def preprocess_config(interface, conn, config):
+def preprocess_config(interface, conn, config: dict) -> dict:
     if config['crypto']['crypt_password'] == None or config['crypto']['crypt_password'] == '':
-        raise ValueError('Password has not been set')
+        return config
+        #raise ValueError('Password has not been set')
 
     config['crypto']['crypt_password'] = config['crypto']['crypt_password'].encode('utf8') #must be a byte array
 
@@ -29,7 +30,7 @@ def preprocess_config(interface, conn, config):
         'A' : 'ARGON2I13',
         'O' : pysodium.crypto_pwhash_argon2i_OPSLIMIT_INTERACTIVE,
         'M' : pysodium.crypto_pwhash_argon2i_MEMLIMIT_INTERACTIVE,
-        'S' : base64.b64encode(salt)
+        'S' : base64.b64encode(salt).decode('utf-8')
     }
 
     key = pysodium.crypto_pwhash(pysodium.crypto_secretstream_xchacha20poly1305_KEYBYTES,
@@ -43,13 +44,13 @@ def preprocess_config(interface, conn, config):
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 # One-shot encryption and decryption
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
-def encrypt(child, data, meta, config):
-    if type(data) != str: raise TypeError('Data must be a byte string')
+def encrypt(child, data: bytes, meta: dict, config: dict):
+    if type(data) != bytes: raise TypeError('Data must be a byte string')
 
-    pl_format = pipeline.parse_pipeline_format(meta['header'])
+    pl_format = rrbackup.pipeline.parse_pipeline_format(meta['header'])
     if 'encrypt' in pl_format['format']:
         pl_format['format']['encrypt']['E'] = 'sodssxcc20'
-        meta['header'] = pipeline.serialise_pipeline_format(pl_format)
+        meta['header'] = rrbackup.pipeline.serialise_pipeline_format(pl_format)
         crypt_key = config['crypto']['stream_crypt_key']; ad_data = meta['header']
         state, header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
         cyphertext = pysodium.crypto_secretstream_xchacha20poly1305_push(state, data, ad_data, 0)
@@ -60,9 +61,9 @@ def encrypt(child, data, meta, config):
 
 def decrypt(child, meta, config):
     data, meta2 = child(meta, config)
-    if type(data) != str: raise TypeError('Data must be a byte string')
+    if type(data) != bytes: raise TypeError('Data must be a byte string')
 
-    pl_format = pipeline.parse_pipeline_format(meta2['header'])
+    pl_format = rrbackup.pipeline.parse_pipeline_format(meta2['header'])
     if 'encrypt' in pl_format['format']:
         crypt_key = config['crypto']['stream_crypt_key']; ad_data = meta2['header']
         header = data[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
@@ -81,7 +82,10 @@ class streaming_encrypt:
         self.state = self.header = None; self.enable = False
 
     def pass_config(self, config, pipeline_header):
-        if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
+
+        print(rrbackup.pipeline.parse_pipeline_format)
+
+        if 'encrypt' in rrbackup.pipeline.parse_pipeline_format(pipeline_header)['format']:
             self.enable = True; crypt_key = config['crypto']['stream_crypt_key'];
             self.state, self.header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
             self.pipeline_header = pipeline_header
@@ -90,7 +94,7 @@ class streaming_encrypt:
 
     def next_chunk(self, chunk):
         if self.enable == True:
-            if type(chunk) != str: raise TypeError('Data must be a byte string')
+            if type(chunk) != bytes: raise TypeError('Data must be a byte string')
             res = pysodium.crypto_secretstream_xchacha20poly1305_push(self.state, chunk, self.pipeline_header, 0)
             if self.chunk_id == 0: res = self.header + res
             chunk = res
@@ -103,8 +107,9 @@ class streaming_decrypt:
 
     def pass_config(self, config, pipeline_header):
         self.pipeline_header = pipeline_header
-        self.crypt_key = config['crypto']['stream_crypt_key']
-        if 'encrypt' in pipeline.parse_pipeline_format(pipeline_header)['format']:
+        
+        if 'encrypt' in rrbackup.pipeline.parse_pipeline_format(pipeline_header)['format']:
+            self.crypt_key = config['crypto']['stream_crypt_key']
             self.enable = True
 
     def next_chunk(self):
@@ -112,13 +117,13 @@ class streaming_decrypt:
             if self.chunk_id == 0:
                 chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES
                                               + pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
-                if type(chunk) != str: raise TypeError('Data must be a byte string')
+                if type(chunk) != bytes: raise TypeError('Data must be a byte string')
                 header = chunk[:pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES]
                 chunk = chunk[pysodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES:]
                 self.state = pysodium.crypto_secretstream_xchacha20poly1305_init_pull(header, self.crypt_key)
             else:
                 chunk = self.child.next_chunk(pysodium.crypto_secretstream_xchacha20poly1305_ABYTES)
-                if chunk != None and type(chunk) != str: raise TypeError('Data must be a byte string')
+                if chunk != None and type(chunk) != bytes: raise TypeError('Data must be a byte string')
 
             if chunk == None: return None
             msg, self.tag = pysodium.crypto_secretstream_xchacha20poly1305_pull(self.state, chunk, self.pipeline_header)

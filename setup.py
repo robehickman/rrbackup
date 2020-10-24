@@ -7,14 +7,14 @@ def readme():
 
 setup(
     name='rrbackup',
-    version='0.1',
+    version='0.2',
     description='Versioning backup system',
     long_description=readme(),
     classifiers=[
         'Development Status :: 4 - Beta',
         'Operating System :: POSIX',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.6',
         'Topic :: System :: Archiving :: Backup'
     ],
     keywords='file backup',
@@ -26,7 +26,7 @@ setup(
     test_suite='nose.collector',
     tests_require=['nose'],
     install_requires=[
-        'boto3', 'termcolor', 'pysodium'
+        'boto3', 'boto3-stubs', 'termcolor', 'pysodium'
     ],
     scripts=['cli/rrbackup'],
     zip_safe=False)

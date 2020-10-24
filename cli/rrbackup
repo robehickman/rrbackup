@@ -91,7 +91,8 @@ else:
 
         diff = core.get_remote_manifest_diff(interface, conn, config, args[1])['body']
 
-        print()
+        import pprint
+        pprint.pprint(diff)
         for change in diff:
             if change['status'] == 'moved':
                 print(change['status'].capitalize() + ': ' + change['moved_from'])

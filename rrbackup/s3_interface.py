@@ -13,7 +13,17 @@ def connect(config):
     """ Connect to S3 and ensure that versioning is enabled """
 
     access_key = config['s3']['access_key']; secret_key = config['s3']['secret_key']
-    client = boto3.client( 's3', aws_access_key_id=access_key, aws_secret_access_key=secret_key)
+    
+    if 'endpoint' in config['s3']:
+        client = boto3.client( 's3',
+                            endpoint_url = config['s3']['endpoint'],
+                            aws_access_key_id=access_key,
+                            aws_secret_access_key=secret_key)
+    else:
+        client = boto3.client( 's3',
+                            aws_access_key_id=access_key,
+                            aws_secret_access_key=secret_key)
+    
     bucket_versioning = client.get_bucket_versioning(Bucket=config['s3']['bucket'])
     if bucket_versioning['Status'] != 'Enabled':
         print('Bucket versioning must be enabled, attempting to enable, please restart application')
@@ -184,5 +194,5 @@ class streaming_download:
 
     def next_chunk(self, add_bytes = 0):
         res = self.res['body'].read(self.chunk_size + add_bytes)
-        return res if res != '' else None
+        return res if res != b'' else None
 

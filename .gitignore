@@ -4,6 +4,7 @@
 *.swo
 *.swn
 *.swm
+.mypy_cache
 build
 dist
 rrbackup.egg-info

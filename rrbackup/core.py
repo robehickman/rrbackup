@@ -194,6 +194,10 @@ def backup(interface, conn, config):
     file_manifest = get_manifest(interface, conn, config)
     current_state, errors = sfs.get_file_list(config['base_path'], config['ignore_files'])
 
+    import pprint
+    pprint.pprint(current_state)
+    pprint.pprint(errors)
+
     # filter ignore files
     #current_state = sfs.filter_file_list(current_state, config['ignore_files'])
     #errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
@@ -274,7 +278,7 @@ def backup(interface, conn, config):
             if need_to_upload != []:
                 gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
                 meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-                gc_log = pl_out(json.dumps(gc_changes), meta, config)
+                gc_log = pl_out(json.dumps(gc_changes).encode('utf-8'), meta, config)
 
             #--
             new_uploads = {}
@@ -325,8 +329,10 @@ def backup(interface, conn, config):
                     try:
                         with open(fspath, 'rb') as fle:
                             while True:
+                                print('here')
+
                                 chunk = fle.read(config['chunk_size'])
-                                if chunk == "": break
+                                if chunk == b'': break
                                 pl.next_chunk(chunk)
                         res = upload.finish()
 
@@ -360,7 +366,7 @@ def backup(interface, conn, config):
 
             # upload the diff
             meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-            meta2 = pl_out(json.dumps(new_diff), meta, config)
+            meta2 = pl_out(json.dumps(new_diff).encode('utf-8'), meta, config)
 
             # for some reason have to get the key again to obtain it's time stamp
             k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])

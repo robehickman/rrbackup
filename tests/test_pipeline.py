@@ -69,7 +69,6 @@ class test_pipeline(unittest.TestCase):
 
     @unittest.skipUnless(os.path.isfile('test_s3_conf.json'), "To test using s3 please create 'test_s3_conf.json")
     def test_streaming_pipeline(self):
-        return
 
         upload = interface.streaming_upload(conn, remote_path, config['chunk_size'])
         pl     = pipeline.build_pipeline_streaming(upload, 'out', ['encrypt'], config)
@@ -93,7 +92,8 @@ class test_pipeline(unittest.TestCase):
                 fle.write(res)
 
     def test_streaming_pipeline_org(self):
-        return #disabled for the time being
+        return
+
         crypt_key = pysodium.crypto_secretstream_xchacha20poly1305_keygen()
         print('upload...')
         upload = streaming_upload(client, bucket, key)
@@ -121,6 +121,4 @@ class test_pipeline(unittest.TestCase):
                 res = dcrpt.next_chunk()
                 if res == None: break
                 fle.write(res)
-
-
 

@@ -1,5 +1,5 @@
 import bz2 
-import rrbackup.pipeline as pipeline
+from rrbackup import pipeline
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 # One-shot compression and decompression

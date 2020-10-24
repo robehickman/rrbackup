@@ -6,9 +6,10 @@ assembles pipelines to apply these transformations depending on configuration.
 import functools, json, re
 import rrbackup.crypto as crypto
 import rrbackup.compress as compress
+from pprint import pprint
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
-def preprocess_config(interface, conn, config):
+def preprocess_config(interface, conn, config: dict):
     """ apply transformations to configuration data which should only be done once,
     for example key derivation """
 
@@ -16,16 +17,16 @@ def preprocess_config(interface, conn, config):
 
 #================================================================
 #================================================================
-def get_default_pipeline_format():
+def get_default_pipeline_format() -> dict:
     return {'version' : 1,
             'format'  : {}}
 
 #------------------
-serialise_mapper = {'encrypt'    : 'E'.encode('utf8'),
-                    'compress'   : 'C'.encode('utf8'),
-                    'hash_names' : 'H'.encode('utf8')}
+serialise_mapper = {'encrypt'    : 'E',
+                    'compress'   : 'C',
+                    'hash_names' : 'H'}
 
-def serialise_pipeline_format(pl_format):
+def serialise_pipeline_format(pl_format: dict) -> bytes:
     """ For a given version the output of this MUST NOT CHANGE as it
     is used as additional data for validation"""
     if type(pl_format) != dict: raise TypeError('pipeline format must be a dict')
@@ -45,9 +46,11 @@ def serialise_pipeline_format(pl_format):
         elif pl_format['format'][i] == None: to_json[serialise_mapper[i]] = ''
         else: raise TypeError('Unexpected type')
 
-    return json.dumps(to_json, separators=(',',':'))
+    pprint(to_json)
 
-def parse_pipeline_format(serialised_pl_format):
+    return json.dumps(to_json, separators=(',',':')).encode('utf-8')
+
+def parse_pipeline_format(serialised_pl_format: bytes) -> dict:
     raw = json.loads(serialised_pl_format)
 
     if 'V' not in raw: raise ValueError('Version not found')
@@ -60,8 +63,8 @@ def parse_pipeline_format(serialised_pl_format):
 
     inv_map = {v: k for k, v in serialise_mapper.items()}
     for k, v in raw.items():
-        if v == '': pl_format['format'][inv_map[k.encode('utf8')]] = None
-        elif type(v) == dict: pl_format['format'][inv_map[k.encode('utf8')]] = v
+        if v == '': pl_format['format'][inv_map[k]] = None
+        elif type(v) == dict: pl_format['format'][inv_map[k]] = v
         else: raise ValueError('Unknown type in serialised pipeline format')
 
     return pl_format
@@ -94,6 +97,7 @@ def build_pipeline(interface, direction):
 # -----------------
 def build_pipeline_streaming(interface, direction):
     """ Build a chunked (streaming) pipeline of transformers """
+
     pipeline = interface
 
     if direction == 'out':
