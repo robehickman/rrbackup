@@ -26,7 +26,7 @@ def default_config(interface):
              'file_pipeline'                  : [[ '*', []]],     # pipeline applied to backed up files, list as sort order is important
              'ignore_files'                   : [],               # files to ignore
              'skip_delete'                    : [],               # files which should never be deleted from manifest
-             'ignore_mountpoints'             : False,
+             'visit_mountpoints'              : True,             # Should files in a unix mount point be included in backup?
              'split_chunk_size'               : 0}                # The manifest can be split into smaller chunks to
                                                                   # allow large updates to recover more easily in case 
                                                                   # of connection loss. As this system is inherently designed
@@ -199,11 +199,11 @@ def backup(interface, conn, config):
 
     #----------
     
-    ignore_mountpoints = 'ignore_mountpoints' in config and config['ignore_mountpoints'] == True
+    visit_mountpoints = 'visit_mountpoints' in config and config['visit_mountpoints'] == True
 
     file_manifest = get_manifest(interface, conn, config)
     current_state, errors = sfs.get_file_list(config['base_path'], config['ignore_files'],
-                                              ignore_mountpoints = ignore_mountpoints)
+                                              visit_mountpoints = visit_mountpoints)
 
     # filter ignore files
     #current_state = sfs.filter_file_list(current_state, config['ignore_files'])
