@@ -6,7 +6,6 @@ assembles pipelines to apply these transformations depending on configuration.
 import functools, json, re
 import rrbackup.crypto as crypto
 import rrbackup.compress as compress
-from pprint import pprint
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def preprocess_config(interface, conn, config: dict):
@@ -45,8 +44,6 @@ def serialise_pipeline_format(pl_format: dict) -> bytes:
         if type(pl_format['format'][i]) == dict:  to_json[serialise_mapper[i]] = pl_format['format'][i]
         elif pl_format['format'][i] == None: to_json[serialise_mapper[i]] = ''
         else: raise TypeError('Unexpected type')
-
-    pprint(to_json)
 
     return json.dumps(to_json, separators=(',',':')).encode('utf-8')
 

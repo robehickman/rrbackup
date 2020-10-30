@@ -342,11 +342,12 @@ def backup(interface, conn, config):
                     try:
                         with open(fspath, 'rb') as fle:
                             while True:
-                                print('here')
+                                print('.', end =" ")
 
                                 chunk = fle.read(config['chunk_size'])
                                 if chunk == b'': break
                                 pl.next_chunk(chunk)
+                            print()
                         res = upload.finish()
 
                     except IOError: 

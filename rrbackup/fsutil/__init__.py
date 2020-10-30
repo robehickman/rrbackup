@@ -101,10 +101,6 @@ def get_file_list(path, ignore_filters = None, visit_mountpoints = True):
         for fle in files:
             f_path = cpjoin(path, fle)
 
-            print(f_path)
-            print(os.path.ismount(f_path))
-            print('--')
-
             visit_path = True
 
             if not (ignore_filters == None or not filter_helper(cpjoin(newpath, fle), ignore_filters)):
