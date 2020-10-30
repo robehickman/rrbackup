@@ -83,8 +83,6 @@ class streaming_encrypt:
 
     def pass_config(self, config, pipeline_header):
 
-        print(rrbackup.pipeline.parse_pipeline_format)
-
         if 'encrypt' in rrbackup.pipeline.parse_pipeline_format(pipeline_header)['format']:
             self.enable = True; crypt_key = config['crypto']['stream_crypt_key'];
             self.state, self.header = pysodium.crypto_secretstream_xchacha20poly1305_init_push(crypt_key)
