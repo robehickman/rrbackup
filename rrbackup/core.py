@@ -496,7 +496,6 @@ def garbage_collect(interface, conn, config, mode='simple'):
                 elif latest_version == None:
                     print('object missing on remote')
                     print(remote_path)
-                    pass
 
                 # if it exists, is remote version newer?
                 elif latest_version['VersionId'] != manifest_index[item['path']]['version_id'] and latest_version['LastModified'] >= gc_log_meta['last_modified']:
