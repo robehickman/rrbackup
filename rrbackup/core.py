@@ -3,10 +3,13 @@ import collections
 from copy import deepcopy
 from termcolor import colored
 from pprint import pprint
+from itertools import chain, repeat
+
 #---
 import rrbackup.pipeline as pipeline
 import rrbackup.crypto   as crypto
 from . import fsutil as sfs
+
 
 ###################################################################################
 def default_config(interface):
@@ -81,9 +84,76 @@ def init(interface, conn, config):
         interface.delete_failed_uploads(conn)
         garbage_collect(interface, conn, config, 'simple')
 
+
+###################################################################################
+def write_json_to_remote(config, path : string, data_to_write):
+    meta = {'path' : path, 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
+    gc_log = pl_out(json.dumps(data_to_write).encode('utf-8'), meta, config)
+
+
+###################################################################################
+def streaming_file_upload():
+    print(colored('Uploading: ' + change['path'], 'green'))
+
+    #Determine the correct pipeline format to use for this file from the configuration
+    try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
+    except StopIteration: raise 'No pipeline format matches '
+
+    # Get remote file name
+    remote_path = sfs.cpjoin(config['remote_base_path'], change['path'])
+
+    #----
+    pl_format = pipeline.get_default_pipeline_format()
+    pl_format['chunk_size'] = config['chunk_size']
+    pl_format['format'] = {i : None for i in matched_plf}
+    if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
+
+    #-----
+    upload = interface.streaming_upload()
+    pl     = pipeline.build_pipeline_streaming(upload, 'out')
+
+    pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
+
+    upload.begin(conn, remote_path)
+
+    try:
+        with open(fspath, 'rb') as fle:
+            while True:
+                print('.', end =" ")
+
+                chunk = fle.read(config['chunk_size'])
+                if chunk == b'': break
+                pl.next_chunk(chunk)
+            print()
+        res = upload.finish()
+
+    except IOError: 
+        # If file no longer exists at this stage assume it has been deleted and ignore it
+        upload.abort()
+        continue
+
+
+###################################################################################
+def streaming_file_download():
+    remote_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
+
+    download          = interface.streaming_download()
+    header, pl_format = download.begin(conn, remote_path, fle['version_id'])
+    pl                = pipeline.build_pipeline_streaming(download, 'in')
+    pl.pass_config(config, header)
+
+    sfs.make_dirs_if_dont_exist(dest)
+    with open(dest, 'wb') as fle:
+        while True:
+            res = pl.next_chunk()
+            if res == None: break
+            fle.write(res)
+
+
 ###################################################################################
 def get_remote_manifest_versions(interface, conn, config):
     return list(interface.list_versions(conn, config['remote_manifest_diff_file']))
+
 
 ###################################################################################
 def get_remote_manifest_diff(interface, conn, config, version_id = None):
@@ -94,6 +164,7 @@ def get_remote_manifest_diff(interface, conn, config, version_id = None):
     return { 'version_id'    : version_id,
              'last_modified' : meta2['last_modified'],
              'body'          : json.loads(data)}
+
 
 ###################################################################################
 def get_remote_manifest_diffs(interface, conn, config):
@@ -110,6 +181,7 @@ def get_remote_manifest_diffs(interface, conn, config):
                        'meta' : meta2})
 
     return list(diffs)
+
 
 ###################################################################################
 def rebuild_manifest_from_diffs(versions, version_id = None):
@@ -164,10 +236,8 @@ def get_manifest(interface, conn, config):
 
                     file_manifest['latest_remote_diff'] = {'version_id' : diffs[-1]['meta']['version_id'], 'last_modified' : diffs[-1]['meta']['last_modified'].isoformat()}
 
-                    # Write and move for atomicity
-                    sfs.file_put_contents(config['local_manifest_file']+'.tmp', json.dumps(file_manifest))
-                    os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
-
+                    #============================================
+                    write_local_manifest(config, file_manifest)
                     return file_manifest
 
                 else: raise SystemExit('Latest remote manifest does not align with local manifest')
@@ -180,14 +250,180 @@ def get_manifest(interface, conn, config):
         if versions != []: return rebuild_manifest_from_diffs(versions)
         else: return new_manifest() # No manifest exists on s3
 
-###################################################################################
-from itertools import chain, repeat
-def grouper(n, iterable, padvalue=None):
-    "grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')"
-    return zip(*[chain(iterable, repeat(padvalue, n-1))]*n)
 
+###################################################################################
+def write_local_manifest(config, file_manifest):
+    """ Write the local manifest, done using write and move for atomicity """
+
+    sfs.file_put_contents(config['local_manifest_file']+'.tmp', json.dumps(file_manifest))
+    os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
+
+
+###################################################################################
+def split_files_changes_into_chunks(config, localy_changed_files):
+    # Allow changes to be split into chunks to handle a large number of changes
+    # made to a filesystem mostly consisting of large files, where the upload
+    # may fail mid-process. Useful for initial uploads
+    changed_files_chunked = []
+
+    if localy_changed_files !={}:
+        localy_changed_files_list = [changed for p, changed in localy_changed_files.items()]
+
+        # Allow diff to be split into chunks to handle large uploads
+        chunk_size = config['split_chunk_size'] if 'split_chunk_size' in config else 0
+
+        if chunk_size > 0:
+
+            chunk = []
+            for item in localy_changed_files_list:
+                chunk.append(item)
+                if len(chunk) >= chunk_size:
+                    changed_files_chunked.append(chunk)
+                    chunk = []
+
+            if len(chunk) != 0:
+                changed_files_chunked.append(chunk)
+
+        else:
+            changed_files_chunked = [localy_changed_files_list]
+
+    return changed_files_chunked
+
+
+###################################################################################
+def referance_for_deduplication(master_file, duplicate_file):
+    """ Referances a duplicate file back to a master file """
+
+    if 'empty' in master_file:
+        duplicate_file['empty'] = True
+
+    else:
+        duplicate_file['name_hashed'] = master_file['name_hashed']
+        duplicate_file['real_path']   = master_file['real_path']
+        duplicate_file['version_id']  = master_file['version_id']
+
+    return duplicate_file
+
+
+###################################################################################
+def deduplicate_changes_and_create_diff(config, changed_files, file_manifest):
+    """ Performs file de-duplication against the previous manifest and works out
+    which files need to be uploaded, creating a new diff """
+
+    # For the detection of duplicates we need to hash any newly added files.
+    # Also, we sort the file list so it's more logical for the user
+    changed_files = sfs.hash_new_files(changed_files, config['base_path'])
+    changed_files = sorted(changed_files,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
+
+    # for de-duplication we create an index of the hashes in the previous manifest
+    file_hashes_in_previous_manifest = {f['hash'] : f for f in file_manifest['files']}
+
+    # Note that we cannot simplify this by multiple assignment to one list
+    # as python handles lists by referance not by value
+    new_diff       = []
+    need_to_upload = []
+    new_duplicates = []
+
+    for change in changed_files:
+        if change['status'] in ['new', 'changed']:
+            msg = colored('Adding: ' + change['path'], 'green')
+
+            # If the hash already exists in the previous manifest or has been seen already in the
+            # current run, the file has been moved or is a duplicate, don't need to upload it again
+            if change['hash'] in file_hashes_in_previous_manifest:
+                msg += colored(' (De-duplicated)', 'yellow')
+
+                duplicate_from_previous_manifest = file_hashes_in_previous_manifest[change['hash']]
+
+                # new duplicates need to be handled specially as the above metadata does not exist yet
+                if not ('empty' in duplicate_from_previous_manifest and 'name_hashed' in it):
+                    new_duplicates.append(change)
+
+                new_diff.append(referance_for_deduplication(master_file, duplicate_file))
+
+
+            # If the file has not been seen before, 
+            else:
+                need_to_upload.append(change)
+                file_hashes_in_previous_manifest[change['hash']] = change
+
+            print(msg)
+
+        elif change['status'] == 'deleted':
+            # skip delete feature
+            if sfs.filter_helper(change['path'], config['skip_delete']): continue
+
+            # Delete only removes the file from the manifest, the object needs to remain as it
+            # is referenced by prior versions
+            print(colored('Deleting: ' + change['path'], 'red')) 
+            new_diff.append(change)
+
+    return new_diff, need_to_upload, new_duplicates
+
+
+###################################################################################
+def upload_changed_files(new_diff, need_to_upload, new_duplicates):
+    # Before we actually upload anything, we store the list of what we are about
+    # to upload on the remote in order to garbage collect failed uploads without
+    # checking every version of the manifest against all existing objects
+    if need_to_upload != []:
+        gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
+        write_json_to_remote(config, config['remote_gc_log_file'], gc_changes)
+
+    #--
+    new_uploads = {}
+    for change in need_to_upload:
+        fspath = sfs.cpjoin(config['base_path'], change['path'])
+
+        # Attempt to get the file size to see if the file is empty as s3 does
+        # not allow empty objects, and they need special handling
+        try: stat_result = os.stat(fspath)
+        except OSError: continue 
+
+        # handle empty files
+        if stat_result.st_size == 0:
+            print(colored('Warning, empty file: ' + change['path'], 'red'))
+            change['empty'] = True
+            new_diff.append(change)
+
+            # also log to new uploads so duplicates of these files can be referenced correctly below
+            new_uploads[change['hash']] = change
+            continue
+
+
+        # =========================================================
+        streaming_file_upload()
+
+        # =========================================================
+        change['real_path']   = change['path']
+        change['version_id']  = res['VersionId']
+        new_diff.append(change);
+
+        # also log to new uploads so duplicates of these files can be referenced correctly below
+        new_uploads[change['hash']] = change
+
+    # process duplicates of new files
+    for duplicate_file in new_duplicates:
+        master_file = new_uploads[change['hash']]
+        new_diff.append(referance_for_deduplication(master_file, duplicate_file))
+
+    # upload the diff
+    meta2 = write_json_to_remote(config, config['remote_manifest_diff_file'], new_diff)
+
+    # for some reason have to get the key again to obtain it's time stamp
+    k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
+
+    # apply the diff to the local manifest and update it
+    file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
+    file_manifest['latest_remote_diff'] = {'version_id' : k['version_id'], 'last_modified' : k['last_modified'].isoformat()}
+
+    return file_manifest
+
+
+###################################################################################
 def backup(interface, conn, config):
-    """ To store data, diff file changes, upload changes and store the diff """
+    """ Compares the current state of the local filesystem with a historic state
+    stored in a manifest, and uploads the differances to the remote store """
 
     if 'read_only' in config and config['read_only'] == True: raise Exception('read only')
 
@@ -197,8 +433,7 @@ def backup(interface, conn, config):
     try: fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except IOError: raise SystemExit('Locked by another process')
 
-    #----------
-    
+    # Scan the local filesystem to obtain its current state
     visit_mountpoints = 'visit_mountpoints' in config and config['visit_mountpoints'] == True
 
     file_manifest = get_manifest(interface, conn, config)
@@ -213,194 +448,33 @@ def backup(interface, conn, config):
         for e in errors: print(colored('Could not read ' + e['path'], 'red')) 
         print('--------------')
 
-    #Find and process changes
-    diff = sfs.find_manifest_changes(current_state, file_manifest['files'])
+    #Find changed files
+    localy_changed_files = sfs.find_manifest_changes(current_state, file_manifest['files'])
 
-    if diff !={}:
-        diff2 = [change for p, change in diff.items()]
+    changed_files_chunked = split_files_changes_into_chunks(config, localy_changed_files)
 
-        # Allow diff to be split into chunks to handle large uploads
-        chunk_size = config['split_chunk_size'] if 'split_chunk_size' in config else 0
+    # =============================================================================
+    for changed_files in changed_files_chunked:
+        print('--------------')
 
-        if chunk_size > 0:
-            diff_chunks = grouper(chunk_size, diff2)
-        else:
-            diff_chunks = [diff2]
+        new_diff, need_to_upload, new_duplicates = deduplicate_changes_and_create_diff(config, changed_files, file_manifest)
 
-        # ==============
-        for diff3 in diff_chunks:
+        file_manifest = upload_changed_files(new_diff, need_to_upload, new_duplicates)
+        write_local_manifest(config, file_manifest)
 
-            diff = [x for x in diff3 if x is not None] #grouper inserts none if there are insufficient elements to make a full group, need to strip
+        # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
+        time.sleep(1)
 
-            diff = sfs.hash_new_files(diff, config['base_path'])
-            #-------
-            # Move detection disabled for now, it was added for de-duplication, new system does that a lot better.
-            # Be careful if this is re-enabled to handle the 'empty' flag correctly
-            #-------
-            #diff = sfs.detect_moved_files(file_manifest, diff)
-            #-------
-            diff = sorted(diff,key=lambda fle:(os.path.dirname(fle['path']), os.path.basename(fle['path'])))
+        # delete the garbage collection log, done last in case of crash
+        # to avoid leaving garbage objects on the remote
+        if need_to_upload != []:
+            interface.delete_object(conn, config['remote_gc_log_file'])
 
-            # for de-duplication index hashes from the previous manifest
-            hash_index = {f['hash'] : f for f in file_manifest['files']}
+        print('--------------')
 
-            need_to_upload = []; new_diff = []; new_duplicates = [] # these must be assigned to different lists!
-            for change in diff:
-                if change['status'] in ['new', 'changed']:
-                    msg = colored('Adding: ' + change['path'], 'green')
-
-                    # If the hash already exists in the previous manifest or has been seen already in the current run
-                    # file been moved or is a duplicate, don't need to upload again
-                    if change['hash'] in hash_index :
-                        msg += colored(' (De-duplicated)', 'yellow')
-
-                        it = hash_index[change['hash']]
-                        if 'empty' in it:
-                            change['empty'] = True
-                            new_diff.append(change)
-                        elif 'name_hashed' in it:
-                            change['name_hashed'] = it['name_hashed']
-                            change['real_path']   = it['real_path']
-                            change['version_id']  = it['version_id']
-                            new_diff.append(change)
-                        else: # new duplicates need to be handled specially as the above metadata does not exist yet
-                            new_duplicates.append(change)
-                    else:
-                        need_to_upload.append(change)
-                        hash_index[change['hash']] = change
-                    print(msg)
-
-                elif change['status'] == 'moved':
-                    # Moves store the name of the new file but to save space store a pointer to the old file
-                    # on the remote. Store as is as details handled by 'detect_moved_files()'.
-                    print(colored('Moving: ' + change['path'], 'yellow')) 
-                    new_diff.append(change)
-
-                elif change['status'] == 'deleted':
-                    # skip delete feature
-                    if sfs.filter_helper(change['path'], config['skip_delete']): continue
-
-                    # Delete only removes the file from the manifest, the object needs to remain as it
-                    # is referenced by prior versions
-                    print(colored('Deleting: ' + change['path'], 'red')) 
-                    new_diff.append(change)
-
-            print('--------------')
-
-            # For garbage collection of failed uploads, log new and changed items to s3
-            if need_to_upload != []:
-                gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
-                meta = {'path' : config['remote_gc_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-                gc_log = pl_out(json.dumps(gc_changes).encode('utf-8'), meta, config)
-
-            #--
-            new_uploads = {}
-            for change in need_to_upload:
-                fspath = sfs.cpjoin(config['base_path'], change['path'])
-
-                try:
-                    stat_result = os.stat(fspath)
-                except OSError:
-                    # If file no longer exists at this stage assume it has been deleted and ignore it
-                    continue 
-
-                # handle empty files
-                if stat_result.st_size == 0:
-                    print(colored('Warning, empty file: ' + change['path'], 'red'))
-                    change['empty'] = True
-                    new_diff.append(change);
-
-                     # also log to new uploads so duplicates of these files can be referenced correctly below
-                    new_uploads[change['hash']] = change
-
-                # normal files
-                else:
-                    print(colored('Uploading: ' + change['path'], 'green'))
-
-                    #Determine the correct pipeline format to use for this file from the configuration
-                    try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
-                    except StopIteration: raise 'No pipeline format matches '
-
-                    # Get remote file name
-                    remote_path = sfs.cpjoin(config['remote_base_path'], change['path'])
-
-                    #----
-                    pl_format = pipeline.get_default_pipeline_format()
-                    pl_format['chunk_size'] = config['chunk_size']
-                    pl_format['format'] = {i : None for i in matched_plf}
-                    if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
-
-                    #-----
-                    upload = interface.streaming_upload()
-                    pl     = pipeline.build_pipeline_streaming(upload, 'out')
-
-                    pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
-
-                    upload.begin(conn, remote_path, )
-
-                    try:
-                        with open(fspath, 'rb') as fle:
-                            while True:
-                                print('.', end =" ")
-
-                                chunk = fle.read(config['chunk_size'])
-                                if chunk == b'': break
-                                pl.next_chunk(chunk)
-                            print()
-                        res = upload.finish()
-
-                    except IOError: 
-                        # If file no longer exists at this stage assume it has been deleted and ignore it
-                        upload.abort()
-                        continue
-
-
-                    change['name_hashed'] = 'hash_names' in matched_plf
-                    change['real_path']   = change['path']
-                    change['version_id']  = res['VersionId']
-                    new_diff.append(change);
-
-                     # also log to new uploads so duplicates of these files can be referenced correctly below
-                    new_uploads[change['hash']] = change
-
-            print('------------------')
-
-            # process duplicates of new files
-            for change in new_duplicates:
-                it = new_uploads[change['hash']]
-                if 'empty' in it:
-                    change['empty'] = True
-                    new_diff.append(change)
-                else:
-                    change['name_hashed'] = it['name_hashed']
-                    change['real_path']   = it['real_path']
-                    change['version_id']  = it['version_id']
-                    new_diff.append(change)
-
-            # upload the diff
-            meta = {'path' : config['remote_manifest_diff_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-            meta2 = pl_out(json.dumps(new_diff).encode('utf-8'), meta, config)
-
-            # for some reason have to get the key again to obtain it's time stamp
-            k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
-
-            # apply the diff to the local manifest and update it
-            file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
-            file_manifest['latest_remote_diff'] = {'version_id' : k['version_id'], 'last_modified' : k['last_modified'].isoformat()}
-
-            # Write and move for atomicity
-            sfs.file_put_contents(config['local_manifest_file']+'.tmp', json.dumps(file_manifest))
-            os.rename(config['local_manifest_file']+'.tmp', config['local_manifest_file'])
-
-            # delete the garbage collection log
-            #time.sleep(1) # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
-
-            if need_to_upload != []:
-                interface.delete_object(conn, config['remote_gc_log_file'])
-
-        # unlock
-        fcntl.flock(lockfile, fcntl.LOCK_UN)
-        os.remove(lockfile_path)
+    # unlock
+    fcntl.flock(lockfile, fcntl.LOCK_UN)
+    os.remove(lockfile_path)
 
 ###################################################################################
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
@@ -422,25 +496,16 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
     for fle in file_manifest['files']:
         print('Downloading: ' + fle['path'])
 
-        dest = sfs.cpjoin(target_directory, fle['path'])
+        local_file_path = sfs.cpjoin(target_directory, fle['path'])
 
         if 'empty' in fle:
-            sfs.make_dirs_if_dont_exist(dest)
+            sfs.make_dirs_if_dont_exist(local_file_path)
             handle = open(dest, 'w').close()
         else:
             remote_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
+            sfs.make_dirs_if_dont_exist(local_file_path)
+            streaming_file_download(remote_path, local_file_path)
 
-            download          = interface.streaming_download()
-            header, pl_format = download.begin(conn, remote_path, fle['version_id'])
-            pl                = pipeline.build_pipeline_streaming(download, 'in')
-            pl.pass_config(config, header)
-
-            sfs.make_dirs_if_dont_exist(dest)
-            with open(dest, 'wb') as fle:
-                while True:
-                    res = pl.next_chunk()
-                    if res == None: break
-                    fle.write(res)
 
 ############################################################################################
 def garbage_collect(interface, conn, config, mode='simple'):
