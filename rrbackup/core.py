@@ -494,9 +494,8 @@ def garbage_collect(interface, conn, config, mode='simple'):
                 # There is a file listed in the local manifest which should be on the remote, but
                 # is missing for some reason
                 elif latest_version == None:
+                    print('object missing on remote')
                     print(remote_path)
-                    print(item['path'])
-                    raise SystemExit('object missing on remote')
                     pass
 
                 # if it exists, is remote version newer?
