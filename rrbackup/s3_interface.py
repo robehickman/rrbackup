@@ -101,6 +101,9 @@ def list_versions(conn, fle = None):
     if fle == None: version_list = conn['client'].list_object_versions(Bucket=conn['bucket'])
     else: version_list = conn['client'].list_object_versions(Bucket=conn['bucket'], Prefix=fle)
 
+    from pprint import pprint
+    pprint(version_list)
+
     if version_list['IsTruncated']: raise Exception('truncated result')
     if 'Versions' not in version_list: return []
 
