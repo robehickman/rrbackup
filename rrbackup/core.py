@@ -482,7 +482,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
             object_versions = interface.list_versions(conn, remote_path)
 
             latest_version  = None
-            if len(object_versions) > 0):
+            if len(object_versions) > 0:
                 latest_version = object_versions[-1]
 
             # Check if the version of the object stored on the remote is newer than the
