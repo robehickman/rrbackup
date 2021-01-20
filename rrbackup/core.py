@@ -520,7 +520,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
     # else append them onto the garbage object log.
 
     is_write_only = False
-    if 'read_only' in config and config['read_only'] == True: return
+    if 'read_only' in config and config['read_only'] == True:
         is_write_only = True
 
     if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
