@@ -518,7 +518,15 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
     # If have delete permissions, delete the garbage versions of the objects,
     # else append them onto the garbage object log.
+
+    is_write_only = False
+    if 'read_only' in config and config['read_only'] == True: return
+        is_write_only = True
+
     if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
+        is_write_only = True
+
+    if not is_write_only:
         for item in garbage_objects:
             print(colored('Deleting garbage object: ' + str(item) , 'red'))
             interface.delete_object(conn, item[0], version_id = item[1])
