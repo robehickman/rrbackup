@@ -545,7 +545,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
         log.append(garbage_objects)
         meta = {'path' : config['remote_garbage_object_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-        meta2 = pl_out(json.dumps(log), meta, config)
+        meta2 = pl_out(json.dumps(log).encode('utf-8'), meta, config)
 
     # Finally delete the GC log
     interface.delete_object(conn, config['remote_gc_log_file'])
