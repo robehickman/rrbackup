@@ -321,9 +321,8 @@ def backup(interface, conn, config):
                     try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
                     except StopIteration: raise 'No pipeline format matches '
 
-                    # Get remote file name and implementation of hash path
-                    path_hash = hashlib.sha256(change['path'].encode('utf8')).hexdigest() if 'hash_names' in matched_plf else change['path']
-                    remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
+                    # Get remote file name
+                    remote_path = sfs.cpjoin(config['remote_base_path'], change['path'])
 
                     #----
                     pl_format = pipeline.get_default_pipeline_format()
@@ -429,8 +428,7 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
             sfs.make_dirs_if_dont_exist(dest)
             handle = open(dest, 'w').close()
         else:
-            path_hash = hashlib.sha256(fle['real_path'].encode('utf8')).hexdigest() if fle['name_hashed'] == True else fle['real_path']
-            remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
+            remote_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
 
             download          = interface.streaming_download()
             header, pl_format = download.begin(conn, remote_path, fle['version_id'])
@@ -477,8 +475,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
         garbage_objects = []
         for item in gc_log:
-            path_hash       = hashlib.sha256(item['path'].encode('utf8')).hexdigest()
-            remote_path     = sfs.cpjoin(config['remote_base_path'], path_hash)
+            remote_path     = sfs.cpjoin(config['remote_base_path'], item['path'])
             object_versions = interface.list_versions(conn, remote_path)
 
             latest_version  = None
@@ -558,8 +555,7 @@ def varify_manifest(interface, conn, config):
     manifest_referanced_objects = {}
     for diff in get_remote_manifest_diffs(interface, conn, config):
         for fle in json.loads(diff['body']):
-            path_hash = hashlib.sha256(fle['real_path'].encode('utf8')).hexdigest()
-            real_path = sfs.cpjoin(config['remote_base_path'], path_hash)
+            real_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
             version_id = fle['version_id']
             if (real_path, version_id) not in manifest_referanced_objects:
                 manifest_referanced_objects[(real_path, version_id)] = None
