@@ -426,7 +426,8 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
         dest = sfs.cpjoin(target_directory, fle['path'])
 
         if 'empty' in fle:
-            open(dest, 'a').close()
+            sfs.make_dirs_if_dont_exist(dest)
+            handle = open(dest, 'w').close()
         else:
             path_hash = hashlib.sha256(fle['real_path'].encode('utf8')).hexdigest() if fle['name_hashed'] == True else fle['real_path']
             remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
