@@ -475,7 +475,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
         garbage_objects = []
         for item in gc_log:
-            remote_path     = sfs.cpjoin(config['remote_base_path'], item['path'])
+            remote_path     = '/' + sfs.cpjoin(config['remote_base_path'], item['path'])
             object_versions = interface.list_versions(conn, remote_path)
 
             latest_version  = None
