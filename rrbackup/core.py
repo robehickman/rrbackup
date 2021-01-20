@@ -473,33 +473,44 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
         #----
         manifest = get_manifest(interface, conn, config)
-        index = {fle['path'] : fle for fle in manifest['files']}
+        manifest_index = {fle['path'] : fle for fle in manifest['files']}
 
         garbage_objects = []
         for item in gc_log:
-            path_hash = hashlib.sha256(item['path'].encode('utf8')).hexdigest()
-            remote_path = sfs.cpjoin(config['remote_base_path'], path_hash)
-            vers = interface.list_versions(conn, remote_path)
+            path_hash       = hashlib.sha256(item['path'].encode('utf8')).hexdigest()
+            remote_path     = sfs.cpjoin(config['remote_base_path'], path_hash)
+            object_versions = interface.list_versions(conn, remote_path)
 
+            latest_version  = None
+            if len(object_versions) > 0):
+                latest_version = object_versions[-1]
 
-
-            #if this exists in the previous manifest, see if a newer version exists, if so it is garbage
-            if item['path'] in index:
+            # Check if the version of the object stored on the remote is newer than the
+            # one in the local manifest. If so, the latest remote version is garbage
+            if item['path'] in manifest_index:
 
                 # As empty files don't actually get stored on the remote, we don't need to do anything
                 # to clean them up if we find one in the GC log.
-                if 'empty' in index[item['path']] and index[item['path']]['empty'] == True:
+                if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty'] == True:
                     pass
 
-                elif vers[-1]['VersionId'] != index[item['path']]['version_id'] and vers[-1]['LastModified'] >= gc_log_meta['last_modified']:
-                    garbage_objects.append((vers[-1]['Key'], vers[-1]['VersionId']))
+                # There is a file listed in the local manifest which should be on the remote, but
+                # is missing for some reason
+                elif latest_version == None:
+                    print(item['path'])
+                    raise SystemExit('object missing on remote')
+                    pass
+
+                # if it exists, is remote version newer?
+                elif latest_version['VersionId'] != manifest_index[item['path']]['version_id'] and latest_version['LastModified'] >= gc_log_meta['last_modified']:
+                    garbage_objects.append((latest_version['Key'], latest_version['VersionId']))
 
             # if it does not exist in the prior manifest it's a new addition so the latest version is garbage
             # the latest version was uploaded equal to or later than the timestamp of the GC log. Note that an existing
             # object won't always exist in the prior manifest as it may have been deleted in an earlier version.
             else:
-                if vers == []: pass # not in manifest and no prior versions so upload failed, don't need to do anything.
-                elif vers[-1]['LastModified'] >= gc_log_meta['last_modified']: garbage_objects.append((vers[-1]['Key'], vers[-1]['VersionId']))
+                if latest_version is None: pass # not in manifest and no prior versions so upload failed, don't need to do anything.
+                elif latest_version['LastModified'] >= gc_log_meta['last_modified']: garbage_objects.append((latest_version[-1]['Key'], latest_version[-1]['VersionId']))
 
     #---------------
     elif mode == 'full':
