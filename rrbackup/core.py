@@ -559,11 +559,10 @@ def garbage_collect(interface, conn, config, mode='simple'):
                 if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty']:
                     pass
 
-                # There is a file listed in the local manifest which should be on the remote, but
-                # is missing for some reason
+                # If there is a previous version committed, but the upload of a revision failed,
+                # the file will be missing on the remote but still exist in the local manifest
                 elif latest_version is None:
-                    print('object missing on remote')
-                    print(remote_path)
+                    pass
 
                 # if it exists, is remote version newer?
                 elif latest_version['VersionId'] != manifest_index[item['path']]['version_id'] and latest_version['LastModified'] >= gc_log_meta['last_modified']:
@@ -573,8 +572,13 @@ def garbage_collect(interface, conn, config, mode='simple'):
             # the latest version was uploaded equal to or later than the timestamp of the GC log. Note that an existing
             # object won't always exist in the prior manifest as it may have been deleted in an earlier version.
             else:
-                if latest_version is None: pass # not in manifest and no prior versions so upload failed, don't need to do anything.
-                elif latest_version['LastModified'] >= gc_log_meta['last_modified']: garbage_objects.append((latest_version[-1]['Key'], latest_version[-1]['VersionId']))
+                # not in manifest and no prior versions so upload failed, don't need to do anything.
+                if latest_version is None:
+                    pass
+                
+                # else upload of that file succeeded, leaving a garbage object on the remote
+                elif latest_version['LastModified'] >= gc_log_meta['last_modified']:
+                    garbage_objects.append((latest_version[-1]['Key'], latest_version[-1]['VersionId']))
 
     #---------------
     elif mode == 'full':
