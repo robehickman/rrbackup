@@ -22,10 +22,18 @@ Positional arguments:
 list_versions                                      - List all versions
 list_files    [version_id]                         - List all files in a version
 list_changes  [version_id]                         - List what has changed in the named version
+
 download      [version id]  [target] [filter file] - Download a file or files from the backup, creates
                                                     target directory if it does not exist. Filter file
                                                     specifies files that should not be downloaded, one
-                                                    per line and unix wildcards are supported """)
+                                                    per line and unix wildcards are supported
+                                                    
+garbage_collect                                   - Perform a full garbage collection pass on the remote,
+                                                    checking all existing objects against all objects
+                                                    referanced in the remote manifest.
+
+clean_gc_log                                      - Delete objects listed in the gc log from the remote. 
+                                                    """)
 else:
 
     # Assemble default configuration
@@ -116,6 +124,14 @@ else:
             ignore_filters = ignore_filters.splitlines()
             
         core.download(interface, conn, config, args[1], args[2], ignore_filters)
+
+    #++++++++++++++++++++++++
+    elif args[0] == 'garbage_collect':
+        core.garbage_collect(interface, conn, config, 'full')
+
+    #++++++++++++++++++++++++
+    elif args[0] == 'clean_gc_log':
+        core.clean_gc_log(interface, conn, config)
 
     else:
         print('Unknown command')

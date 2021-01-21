@@ -83,9 +83,21 @@ def init(interface, conn, config):
 
 
 ###################################################################################
-def write_json_to_remote(path : str, data_to_write):
+def write_json_to_remote(config, path : str, data_to_write):
     meta = {'path' : path, 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-    return pl_out(json.dumps(data_to_write).encode('utf-8'), meta)
+    return pl_out(json.dumps(data_to_write).encode('utf-8'), meta, config)
+
+###################################################################################
+def read_json_from_remote(config, path : str, version_id = None):
+
+    meta = {'path'       : path,
+            'version_id' : version_id,
+            'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
+    try: data, object_meta = pl_in(meta, config)
+    except ValueError: return None, None
+
+    return json.loads(data), object_meta
+
 
 
 ###################################################################################
@@ -155,7 +167,7 @@ def get_remote_manifest_diff(config, version_id = None):
     meta = {'path'       : config['remote_manifest_diff_file'],
             'version_id' : version_id,
             'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-    data, meta2 = pl_in(meta)
+    data, meta2 = pl_in(meta, config)
     return { 'version_id'    : version_id,
              'last_modified' : meta2['last_modified'],
              'body'          : json.loads(data)}
@@ -170,7 +182,7 @@ def get_remote_manifest_diffs(interface, conn, config):
         meta = {'path'       : config['remote_manifest_diff_file'],
                 'version_id' : v['VersionId'],
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-        data, meta2 = pl_in(meta)
+        data, meta2 = pl_in(meta, config)
         diffs.append({ 'version_id' : v['VersionId'],
                        'body' : data,
                        'meta' : meta2})
@@ -289,13 +301,8 @@ def split_files_changes_into_chunks(config, localy_changed_files):
 def referance_duplicate_to_master(master_file, duplicate_file):
     """ Referances a duplicate file back to a master file """
 
-    if 'empty' in master_file:
-        duplicate_file['empty'] = True
-
-    else:
-        duplicate_file['name_hashed'] = master_file['name_hashed']
-        duplicate_file['real_path']   = master_file['real_path']
-        duplicate_file['version_id']  = master_file['version_id']
+    duplicate_file['real_path']   = master_file['real_path']
+    duplicate_file['version_id']  = master_file['version_id']
 
     return duplicate_file
 
@@ -312,6 +319,8 @@ def deduplicate_changes_and_create_diff(config, changed_files, file_manifest):
 
     # for de-duplication we create an index of the hashes in the previous manifest
     file_hashes_in_previous_manifest = {f['hash'] : f for f in file_manifest['files']}
+    file_hashes_in_this_revision = {}
+
 
     # Note that we cannot simplify this by multiple assignment to one list
     # as python handles lists by referance not by value
@@ -323,24 +332,37 @@ def deduplicate_changes_and_create_diff(config, changed_files, file_manifest):
         if change['status'] in ['new', 'changed']:
             msg = colored('Adding: ' + change['path'], 'green')
 
+            # Get the size of a file to check if it is empty. If we cannot get this, the
+            # file has probably been deleted since directory contents was listed, so skip it
+            local_file_path = sfs.cpjoin(config['base_path'], change['path'])
+            try: local_file_size = os.stat(local_file_path).st_size
+            except OSError: continue
+
+            # -------------------------------------------------------------
+            # If a file is empty it cannot possibly be a duplicate,
+            # as empty files cannot be stored in s3
+            if local_file_size == 0:
+                change['empty'] = True
+                new_diff.append(change)
+
             # If the hash already exists in the previous manifest or has been seen already in the
             # current run, the file has been moved or is a duplicate, don't need to upload it again
-            if change['hash'] in file_hashes_in_previous_manifest:
+            elif change['hash'] in file_hashes_in_previous_manifest:
                 msg += colored(' (De-duplicated)', 'yellow')
 
                 duplicate_from_previous_manifest = file_hashes_in_previous_manifest[change['hash']]
+                new_diff.append(referance_duplicate_to_master(duplicate_from_previous_manifest, change))
 
-                # new duplicates need to be handled specially as the above metadata does not exist yet
-                if not ('empty' in duplicate_from_previous_manifest and 'name_hashed' in duplicate_from_previous_manifest):
-                    new_duplicates.append(change)
+            # new duplicates need to be handled specially as the metadata
+            # they need to be referanced to does not exist yet
+            elif change['hash'] in file_hashes_in_this_revision:
+                msg += colored(' (De-duplicated)', 'yellow')
+                new_duplicates.append(change)
 
-                else:
-                    new_diff.append(referance_duplicate_to_master(duplicate_from_previous_manifest, change))
-
-            # If the file has not been seen before
+            # If the file has not been seen before, it isn't a duplicate and needs uploading
             else:
                 need_to_upload.append(change)
-                file_hashes_in_previous_manifest[change['hash']] = change
+                file_hashes_in_this_revision[change['hash']] = change
 
             print(msg)
 
@@ -364,7 +386,7 @@ def upload_changed_files(interface, conn, config, file_manifest, new_diff, need_
     if need_to_upload != []:
         gc_changes = [file_to_upload for file_to_upload in need_to_upload
                       if file_to_upload['status'] in ['new', 'changed']]
-        write_json_to_remote(config['remote_gc_log_file'], gc_changes)
+        write_json_to_remote(config, config['remote_gc_log_file'], gc_changes)
 
     #--
     new_uploads = {}
@@ -394,6 +416,7 @@ def upload_changed_files(interface, conn, config, file_manifest, new_diff, need_
                                                 local_file_path, file_to_upload['path'])
 
         # =========================================================
+        # in case name obfuscation will be used, real path stores the obfuscated name
         file_to_upload['real_path']   = file_to_upload['path']
         file_to_upload['version_id']  = upload_metadata['VersionId']
         new_diff.append(file_to_upload)
@@ -407,7 +430,7 @@ def upload_changed_files(interface, conn, config, file_manifest, new_diff, need_
         new_diff.append(referance_duplicate_to_master(master_file, duplicate_file))
 
     # upload the diff
-    upload_metadata = write_json_to_remote(config['remote_manifest_diff_file'], new_diff)
+    upload_metadata = write_json_to_remote(config, config['remote_manifest_diff_file'], new_diff)
 
     # for some reason have to get the key again to obtain it's time stamp
     last_uploaded_diff = interface.get_object(conn, config['remote_manifest_diff_file'],
@@ -448,7 +471,7 @@ def backup(interface, conn, config):
     #errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
 
     if errors != []:
-        for e in errors: print(colored('Could not read ' + e['path'], 'red'))
+        for e in errors: print(colored('Could not read ' + e, 'red'))
         print('--------------')
 
     #Find changed files
@@ -463,6 +486,7 @@ def backup(interface, conn, config):
         new_diff, need_to_upload, new_duplicates = deduplicate_changes_and_create_diff(config, changed_files, file_manifest)
 
         file_manifest = upload_changed_files(interface, conn, config, file_manifest, new_diff, need_to_upload, new_duplicates)
+
         write_local_manifest(config, file_manifest)
 
         # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
@@ -524,61 +548,28 @@ def garbage_collect(interface, conn, config, mode='simple'):
     caused by misuse of the application.
     """
 
+    # If the client is in read only mode we cannot perform garbage collection
     if 'read_only' in config and config['read_only']: return
 
-    missing_objects = garbage_objects = []
+    # If the client is in write only mode, we can perform garbage collection
+    # but not in full, garbage objects which are found are appended to
+    # a garbage objects list, instead of being deleted.
+    is_write_only = False
+    if 'read_only' in config and config['read_only']:
+        is_write_only = True
 
+    if 'allow_delete_versions' in config and config['allow_delete_versions']:
+        is_write_only = True
+
+    # ----------------------------------------------------------------------
+    # Perform GC
+    # ----------------------------------------------------------------------
+    missing_objects = []
+    garbage_objects = []
+
+    #---------------
     if mode == 'simple':
-        meta = {'path'       : config['remote_gc_log_file'],
-                'version_id' : None,
-                'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-        try: data, gc_log_meta = pl_in(meta)
-        except ValueError: return
-
-        gc_log = json.loads(data)
-
-        #----
-        manifest = get_manifest(interface, conn, config)
-        manifest_index = {fle['path'] : fle for fle in manifest['files']}
-
-        garbage_objects = []
-        for item in gc_log:
-            remote_path     = sfs.cpjoin(config['remote_base_path'], item['path'])
-            object_versions = interface.list_versions(conn, remote_path)
-
-            latest_version  = None
-            if len(object_versions) > 0:
-                latest_version = object_versions[-1]
-
-            # Check if the version of the object stored on the remote is newer than the
-            # one in the local manifest. If so, the latest remote version is garbage
-            if item['path'] in manifest_index:
-
-                # As empty files don't actually get stored on the remote, we don't need to do anything
-                # to clean them up if we find one in the GC log.
-                if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty']:
-                    pass
-
-                # If there is a previous version committed, but the upload of a revision failed,
-                # the file will be missing on the remote but still exist in the local manifest
-                elif latest_version is None:
-                    pass
-
-                # if it exists, is remote version newer?
-                elif latest_version['VersionId'] != manifest_index[item['path']]['version_id'] and latest_version['LastModified'] >= gc_log_meta['last_modified']:
-                    garbage_objects.append((latest_version['Key'], latest_version['VersionId']))
-
-            # if it does not exist in the prior manifest it's a new addition so the latest version is garbage
-            # the latest version was uploaded equal to or later than the timestamp of the GC log. Note that an existing
-            # object won't always exist in the prior manifest as it may have been deleted in an earlier version.
-            else:
-                # not in manifest and no prior versions so upload failed, don't need to do anything.
-                if latest_version is None:
-                    pass
-                
-                # else upload of that file succeeded, leaving a garbage object on the remote
-                elif latest_version['LastModified'] >= gc_log_meta['last_modified']:
-                    garbage_objects.append((latest_version[-1]['Key'], latest_version[-1]['VersionId']))
+        garbage_objects = verify_manifest_with_gc_log(interface, conn, config)
 
     #---------------
     elif mode == 'full':
@@ -588,40 +579,64 @@ def garbage_collect(interface, conn, config, mode='simple'):
     #---------------
     else: raise ValueError('Invalid GC mode')
 
-    # If have delete permissions, delete the garbage versions of the objects,
-    # else append them onto the garbage object log.
 
-    is_write_only = False
-    if 'read_only' in config and config['read_only']:
-        is_write_only = True
-
-    if 'allow_delete_versions' in config and config['allow_delete_versions']:
-        is_write_only = True
-
-    if not is_write_only:
-        for item in garbage_objects:
-            print(colored('Deleting garbage object: ' + str(item) , 'red'))
-            interface.delete_object(conn, item[0], version_id = item[1])
-    else:
-        for item in garbage_objects:
-            print(colored('Appending to garbage object log: ' + str(item) , 'red'))
-
-        meta = {'path'       : config['remote_garbage_object_log_file'],
-                'version_id' : None,
-                'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-        try:
-            data, gc_log_meta = pl_in(meta)
-            log = json.loads(data)
-        except ValueError:
-            log = []
-
-        log.append(garbage_objects)
-
-        write_json_to_remote(config['remote_garbage_object_log_file'], log)
+    #---------------
+    delete_garbage_objects(interface, conn, config, garbage_objects, is_write_only)
 
     # Finally delete the GC log
     interface.delete_object(conn, config['remote_gc_log_file'])
 
+
+############################################################################################
+def verify_manifest_with_gc_log(interface, conn, config):
+    gc_log, gc_log_meta = read_json_from_remote(config, config['remote_gc_log_file'])
+    if gc_log is None: return []
+
+    #----
+    manifest = get_manifest(interface, conn, config)
+    manifest_index = {fle['path'] : fle for fle in manifest['files']}
+
+    garbage_objects = []
+    for item in gc_log:
+        remote_path     = sfs.cpjoin(config['remote_base_path'], item['path'])
+        object_versions = interface.list_versions(conn, remote_path)
+
+        latest_version  = None
+        if len(object_versions) > 0:
+            latest_version = object_versions[-1]
+
+        # Check if the version of the object stored on the remote is newer than the
+        # one in the local manifest. If so, the latest remote version is garbage
+        if item['path'] in manifest_index:
+
+            # As empty files don't actually get stored on the remote, we don't need to do anything
+            # to clean them up if we find one in the GC log.
+            if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty']:
+                pass
+
+            # If there is a previous version committed, but the upload of a revision failed,
+            # the file will be missing on the remote but still exist in the local manifest
+            elif latest_version is None:
+                pass
+
+            # if it exists, is remote version newer?
+            elif(latest_version['VersionId'] != manifest_index[item['path']]['version_id']
+                 and latest_version['LastModified'] >= gc_log_meta['last_modified']):
+                garbage_objects.append((latest_version['Key'], latest_version['VersionId']))
+
+        # if it does not exist in the prior manifest it's a new addition so the latest version is garbage
+        # the latest version was uploaded equal to or later than the timestamp of the GC log. Note that an existing
+        # object won't always exist in the prior manifest as it may have been deleted in an earlier version.
+        else:
+            # not in manifest and no prior versions so upload failed, don't need to do anything.
+            if latest_version is None:
+                pass
+
+            # else upload of that file succeeded, leaving a garbage object on the remote
+            elif latest_version['LastModified'] >= gc_log_meta['last_modified']:
+                garbage_objects.append((latest_version['Key'], latest_version['VersionId']))
+
+    return garbage_objects
 
 ############################################################################################
 def varify_manifest(interface, conn, config):
@@ -633,15 +648,19 @@ def varify_manifest(interface, conn, config):
     # get every object and version in every version of the manifest
     manifest_referanced_objects = {}
     for diff in get_remote_manifest_diffs(interface, conn, config):
-        for fle in json.loads(diff['body']):
-            real_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
-            version_id = fle['version_id']
+        for change in json.loads(diff['body']):
+            if 'empty' in change and change['empty']: continue
+
+            real_path = sfs.cpjoin(config['remote_base_path'], change['real_path'])
+            version_id = change['version_id']
+
             if (real_path, version_id) not in manifest_referanced_objects:
                 manifest_referanced_objects[(real_path, version_id)] = None
 
     #Add the remote manifest diffs themselves, gc log and salt file as they are not garbage
     for k in all_objects.keys():
-        if k[0] in ['salt_file', config['remote_gc_log_file'], config['remote_manifest_diff_file']]:
+        if(k[0] in [config['remote_gc_log_file'], config['remote_manifest_diff_file'],
+                    config['remote_garbage_object_log_file'], 'salt_file']):
             manifest_referanced_objects[k] = None
 
     # Remove objects referenced in the manifest
@@ -650,5 +669,57 @@ def varify_manifest(interface, conn, config):
         if k not in all_objects: missing_objects.append(k)
         else: del all_objects[k]
 
-    garbage_objects = all_objects.keys()
+    garbage_objects = list(all_objects.keys())
     return missing_objects, garbage_objects
+
+
+############################################################################################
+def delete_garbage_objects(interface, conn, config, garbage_objects, is_write_only):
+    if garbage_objects == []: return
+
+    # If have delete permissions, delete the garbage versions of the objects,
+    # else append them onto the garbage object log.
+    if not is_write_only:
+        for item in garbage_objects:
+            print(colored('Deleting garbage object: ' + str(item) , 'red'))
+            try: interface.delete_object(conn, item[0], version_id = item[1])
+            except: print(colored('(Warning) The garbage object has already been deleted.', 'yellow'))
+    else:
+        for item in garbage_objects:
+            print(colored('Appending to garbage object log: ' + str(item) , 'red'))
+
+        log = read_json_from_remote(config, config['remote_garbage_object_log_file'])[0]
+        if log is None:
+            log = []
+
+        log.append(garbage_objects)
+
+        write_json_to_remote(config, config['remote_garbage_object_log_file'], log)
+
+
+############################################################################################
+def clean_gc_log(interface, conn, config):
+    is_write_only = False
+    if 'read_only' in config and config['read_only']:
+        print('hit 1')
+        is_write_only = True
+
+    if 'allow_delete_versions' in config and not config['allow_delete_versions']:
+        print('hit 2')
+        is_write_only = True
+
+    if is_write_only:
+        raise SystemExit("We cannot delete garbage objects from the remote in write only mode, " +
+                          "ensure 'allow_delete_versions' is enabled in configuration file")
+
+    gc_log = read_json_from_remote(config, config['remote_garbage_object_log_file'])[0]
+
+    if gc_log is None:
+        raise SystemExit("There is no gc log on the remote (nothing to do).")
+
+    flattened_gc_log = [item for a in gc_log for item in a]
+
+    delete_garbage_objects(interface, conn, config, flattened_gc_log, False)
+
+    # Delete the gc log file
+    interface.delete_object(conn, config['remote_garbage_object_log_file'])

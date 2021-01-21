@@ -112,7 +112,7 @@ def list_versions(conn, fle = None):
     return version_list
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
-def write_file(conn, data, meta):
+def write_file(conn, data, meta, config): # pylint: disable=unused-argument
     """ Pipeline format and other metadata is stored in the header to allow decryption should
     the manifest be lost. This is not used during normal operation. This is included as
     additional data during encryption to stop tampering. """
@@ -122,7 +122,7 @@ def write_file(conn, data, meta):
     meta['version_id'] = res['version_id']
     return meta
 
-def read_file(conn, meta):
+def read_file(conn, meta, config): # pylint: disable=unused-argument
     # boto3 read obtains a chunk from the remote and caches it,
     # don't have to worry about repeated calls.
     version_id = meta['version_id'] if 'version_id' in meta else None
@@ -151,7 +151,7 @@ class streaming_upload:
         self.bucket     = None
         self.key        = None
 
-    def pass_config(self, config, header):
+    def pass_config(self, config, header): # pylint: disable=unused-argument
         self.header = header
 
     def begin(self, conn, key):

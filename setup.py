@@ -7,17 +7,20 @@ def readme():
 
 setup(
     name='rrbackup',
-    version='0.2',
+    version='0.3',
     description='Versioning backup system',
     long_description=readme(),
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
+        'Environment :: Console',
         'Operating System :: POSIX',
+        'Natural Language :: English',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.6',
+        'Intended Audience :: System Administrators',
         'Topic :: System :: Archiving :: Backup'
     ],
-    keywords='file backup',
+    keywords='file backup aws s3',
     url='https://github.com/robehickman/rrbackup',
     author='Robert Hickman',
     author_email='robehickman@gmail.com',

@@ -63,7 +63,7 @@ def cpjoin(*args):
             acopy = acopy[1:] # remove leading slashes
         newargs.append(acopy)
 
-    path = os.path.join(*newargs)
+    path = os.path.join(*newargs) # pylint: disable=no-value-for-parameter 
     if rooted is True: path = os.path.sep + path
     return path
 
