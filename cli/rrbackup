@@ -106,7 +106,7 @@ else:
         if len(args) < 2:
             raise SystemExit("You must provide a Version ID, see help (-h)")
 
-        diff = core.get_remote_manifest_diff(interface, conn, config, args[1])['body']  # pylint: disable=too-many-function-args 
+        diff = core.get_remote_manifest_diff(config, args[1])['body']  # pylint: disable=too-many-function-args 
 
         for change in diff:
             if change['status'] == 'moved':

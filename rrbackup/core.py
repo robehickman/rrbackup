@@ -701,11 +701,9 @@ def delete_garbage_objects(interface, conn, config, garbage_objects, is_write_on
 def clean_gc_log(interface, conn, config):
     is_write_only = False
     if 'read_only' in config and config['read_only']:
-        print('hit 1')
         is_write_only = True
 
     if 'allow_delete_versions' in config and not config['allow_delete_versions']:
-        print('hit 2')
         is_write_only = True
 
     if is_write_only:
