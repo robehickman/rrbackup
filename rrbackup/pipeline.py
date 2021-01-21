@@ -28,7 +28,7 @@ serialise_mapper = {'encrypt'    : 'E',
 def serialise_pipeline_format(pl_format: dict) -> bytes:
     """ For a given version the output of this MUST NOT CHANGE as it
     is used as additional data for validation"""
-    if type(pl_format) != dict: raise TypeError('pipeline format must be a dict')
+    if not isinstance(pl_format, dict): raise TypeError('pipeline format must be a dict')
     if not isinstance(pl_format['version'], int):
         raise TypeError('Version must be an integer')
 
@@ -38,11 +38,11 @@ def serialise_pipeline_format(pl_format: dict) -> bytes:
         to_json['S'] = str(pl_format['chunk_size'])
 
     for i in pl_format['format']:
-        if not (type(i) == str or type(i) == str):
+        if not isinstance(i, str):
             raise TypeError('Format specifiers must be strings')
 
-        if type(pl_format['format'][i]) == dict:  to_json[serialise_mapper[i]] = pl_format['format'][i]
-        elif pl_format['format'][i] == None: to_json[serialise_mapper[i]] = ''
+        if isinstance(pl_format['format'][i], dict):  to_json[serialise_mapper[i]] = pl_format['format'][i]
+        elif pl_format['format'][i] is None: to_json[serialise_mapper[i]] = ''
         else: raise TypeError('Unexpected type')
 
     return json.dumps(to_json, separators=(',',':')).encode('utf-8')
@@ -61,7 +61,7 @@ def parse_pipeline_format(serialised_pl_format: bytes) -> dict:
     inv_map = {v: k for k, v in serialise_mapper.items()}
     for k, v in raw.items():
         if v == '': pl_format['format'][inv_map[k]] = None
-        elif type(v) == dict: pl_format['format'][inv_map[k]] = v
+        elif isinstance(v, dict): pl_format['format'][inv_map[k]] = v
         else: raise ValueError('Unknown type in serialised pipeline format')
 
     return pl_format
@@ -107,4 +107,3 @@ def build_pipeline_streaming(interface, direction):
         raise ValueError('Unknown pipeline direction')
 
     return pipeline
-

@@ -1,4 +1,4 @@
-import bz2 
+import bz2
 from rrbackup import pipeline
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==

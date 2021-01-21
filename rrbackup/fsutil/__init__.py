@@ -32,7 +32,7 @@ def allowed_path(path):
     """ Block '..' from occurring in file paths, this should not happen under normal operation. """
     udir = path.split('/')
     for x in udir:
-        if(x == '..'):
+        if x == '..':
             e = '.. in file paths not aloud'
             print(e); raise Exception(e)
 
@@ -45,7 +45,7 @@ def ensure_extension(path, ext):
 ############################################################################################
 def pfx_path(path):
     """ Prefix a path with the OS path separator if it is not already """
-    if(path[0] != os.path.sep): return os.path.sep + path
+    if path[0] != os.path.sep: return os.path.sep + path
     return path
 
 ############################################################################################
@@ -64,7 +64,7 @@ def cpjoin(*args):
         newargs.append(acopy)
 
     path = os.path.join(*newargs)
-    if rooted == True: path = os.path.sep + path 
+    if rooted is True: path = os.path.sep + path
     return path
 
 ############################################################################################
@@ -103,7 +103,7 @@ def get_file_list(path, ignore_filters = None, visit_mountpoints = True):
 
             visit_path = True
 
-            if not (ignore_filters == None or not filter_helper(cpjoin(newpath, fle), ignore_filters)):
+            if not (ignore_filters is None or not filter_helper(cpjoin(newpath, fle), ignore_filters)):
                 visit_path = False
 
             if not visit_mountpoints and os.path.ismount(f_path):
@@ -139,7 +139,7 @@ def find_manifest_changes(new_file_state, old_file_state):
     for itm in new_file_state:
         if itm['path'] in prev_state_dict:
             d_itm = prev_state_dict.pop(itm['path'])
-            
+
             # If the file has been modified
             if itm['last_mod'] != d_itm['last_mod']:
                 n_itm = itm.copy()
@@ -155,7 +155,7 @@ def find_manifest_changes(new_file_state, old_file_state):
             changed_files[itm['path']] = n_itm
 
     # any files remaining in the remote manifest have been deleted locally
-    for key, itm in prev_state_dict.items():
+    for itm in prev_state_dict.values():
         n_itm = itm.copy()
         n_itm['status'] = 'deleted'
         changed_files[itm['path']] = n_itm
@@ -171,49 +171,6 @@ def hash_new_files(diff, base_path):
         if val['status'] in ['new', 'changed']: val['hash'] = force_unicode(hash_file(fpath))
         processed_files.append(val)
     return processed_files
-
-############################################################################################
-#def detect_moved_files(file_manifest, diff):
-#    """ Detect files that have been moved """
-#    previous_hashes = defaultdict(set)
-#    for item in file_manifest['files']: previous_hashes[item['hash']].add(item['path'])
-#    diff_dict = make_dict(diff)
-#
-#    # files with duplicate hashes are assumed to have the same contents
-#    moved_files = {}
-#    not_found = []
-#    for val in diff:
-#        if val['status'] == 'new' and val['hash'] in previous_hashes:
-#            found = None; prev_filtered = []
-#            for itm in previous_hashes[val['hash']]:
-#                if itm.split('/')[-1] == val['path'].split('/')[-1]: found = itm; break
-#
-#            if found != None and found in diff_dict and diff_dict[found]['status'] == 'delete':
-#                previous_hashes[val['hash']].remove(found)
-#                moved_files[val['path']] = {'from' : found, 'to'   : val['path']}
-#            else: not_found.append(val)
-#
-#    # At this point all duplicate items which have been moved but which retain the original name
-#    # have been removed from there relevant set. Remaining items are assigned on an ad-hoc basis.
-#    # As there hashes are the same, there contents is assumed to be the same so mis-assignments
-#    # are not very important.
-#    for val in not_found:
-#        itm = previous_hashes[val['hash']].pop()
-#        if itm in diff_dict and diff_dict[itm]['status'] == 'delete':
-#            moved_files[val['path']] = {'from' : itm, 'to'   : val['path']}
-#
-#    # Replace separate 'new' and 'delete' with a single 'moved' command.
-#    for key, value in moved_files.items():
-#        moved_from = diff_dict.pop(value['from']) # remove the delete from the diff
-#        moved_to   = diff_dict[value['to']]
-#        diff_dict[value['to']]                   = moved_from     # start with where the file was moved from
-#        diff_dict[value['to']]['status']         = 'moved'
-#        diff_dict[value['to']]['moved_from']     = value['from']
-#        diff_dict[value['to']]['path']           = moved_to['path']  # Copy the moved path
-#        diff_dict[value['to']]['created']        = moved_to['created']  # Copy 'created' from the moved file
-#        diff_dict[value['to']]['last_mod']       = moved_to['last_mod']  # Copy last_mod from the moved file
-#
-#    return [change for p, change in diff_dict.items()]
 
 ###########################################################################################
 def apply_diffs(diffs, manifest):
@@ -273,33 +230,32 @@ def filter_f_list(f_list, unix_wildcard):
     for itm in f_list:
         if fnmatch.fnmatch(itm['path'], unix_wildcard): pass
         else: f_list_filter.append(itm)
-    return f_list_filter;
+    return f_list_filter
 
 ############################################################################################
-def apply_ignore_filters(f_list):
-    """  Loads file ignore filters from IGNORE_FILTER_FILE and applies them to file list passed """
-    filters = []
-
-    try:
-        IGNORE_FILTER_FILE
-
-        try:
-            f_file = file_get_contents(DATA_DIR + IGNORE_FILTER_FILE)
-            lines = f_file.splitlines()
-            filters = filters + lines
-        except:
-            print('Warning: filters file does not exist')
-    except NameError:
-        print('Warning: configuration var IGNORE_FILTER_FILE is not defined')
-    
-    try:
-        filters.append('/' + MANIFEST_FILE)
-        filters.append('/' + CLIENT_CONF_DIR + '*')
-        filters.append('/' + REMOTE_MANIFEST_FILE)
-        filters.append('/' + PULL_IGNORE_FILE)
-    except:
-        pass # on the server remote manifest does not exist
-
-    for f in filters: f_list = filter_f_list(f_list, f)
-    return f_list
-
+#def apply_ignore_filters(f_list):
+#    """  Loads file ignore filters from IGNORE_FILTER_FILE and applies them to file list passed """
+#    filters = []
+#
+#    try:
+#        IGNORE_FILTER_FILE
+#
+#        try:
+#            f_file = file_get_contents(DATA_DIR + IGNORE_FILTER_FILE)
+#            lines = f_file.splitlines()
+#            filters = filters + lines
+#        except:
+#            print('Warning: filters file does not exist')
+#    except NameError:
+#        print('Warning: configuration var IGNORE_FILTER_FILE is not defined')
+#
+#    try:
+#        filters.append('/' + MANIFEST_FILE)
+#        filters.append('/' + CLIENT_CONF_DIR + '*')
+#        filters.append('/' + REMOTE_MANIFEST_FILE)
+#        filters.append('/' + PULL_IGNORE_FILE)
+#    except:
+#        pass # on the server remote manifest does not exist
+#
+#    for f in filters: f_list = filter_f_list(f_list, f)
+#    return f_list

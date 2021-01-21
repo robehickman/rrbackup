@@ -1,9 +1,6 @@
-import functools, hashlib, time, datetime, fnmatch, os, json, fcntl
+import functools, time, datetime, fnmatch, os, json, fcntl
 import collections
-from copy import deepcopy
 from termcolor import colored
-from pprint import pprint
-from itertools import chain, repeat
 
 #---
 import rrbackup.pipeline as pipeline
@@ -31,7 +28,7 @@ def default_config(interface):
              'skip_delete'                    : [],               # files which should never be deleted from manifest
              'visit_mountpoints'              : True,             # Should files in a unix mount point be included in backup?
              'split_chunk_size'               : 0}                # The manifest can be split into smaller chunks to
-                                                                  # allow large updates to recover more easily in case 
+                                                                  # allow large updates to recover more easily in case
                                                                   # of connection loss. As this system is inherently designed
                                                                   # to have atomic commits, a connection fail fails the
                                                                   # whole action, which could be hours of time with a big
@@ -42,15 +39,15 @@ def default_config(interface):
 
 ###################################################################################
 def validate_config(parsed_config):
-    if 'meta_pipeline' in parsed_config and type(parsed_config['meta_pipeline']) != list: raise ValueError('meta_pipeline in conf file mist be a list')
-    if 'file_pipeline' in parsed_config and type(parsed_config['file_pipeline']) != list: raise ValueError('file_pipeline in conf file mist be a list')
-    if 'ignore_files' in parsed_config and type(parsed_config['ignore_files']) != list: raise ValueError('ignore_files in conf file mist be a list')
-    if 'skip_delete' in parsed_config and type(parsed_config['skip_delete']) != list: raise ValueError('skip_delete in conf file mist be a list')
+    if 'meta_pipeline' in parsed_config and not isinstance(parsed_config['meta_pipeline'], list): raise ValueError('meta_pipeline in conf file mist be a list')
+    if 'file_pipeline' in parsed_config and not isinstance(parsed_config['file_pipeline'], list): raise ValueError('file_pipeline in conf file mist be a list')
+    if 'ignore_files'  in parsed_config and not isinstance(parsed_config['ignore_files'], list):  raise ValueError('ignore_files in conf file mist be a list')
+    if 'skip_delete'   in parsed_config and not isinstance(parsed_config['skip_delete'], list):   raise ValueError('skip_delete in conf file mist be a list')
 
 ###################################################################################
 def merge_config(config, parsed_config):
     def dict_merge(dct, merge_dct): # recursive dict merge from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
-        for k, v in merge_dct.items():
+        for k in merge_dct.keys():
             if (k in dct and isinstance(dct[k], dict) and isinstance(merge_dct[k], collections.Mapping)):
                 dict_merge(dct[k], merge_dct[k])
             else: dct[k] = merge_dct[k]
@@ -80,44 +77,44 @@ def init(interface, conn, config):
     pl_out = pipeline.build_pipeline(functools.partial(interface.write_file, conn), 'out')
 
     # Check for previous failed uploads and delete them
-    if 'read_only' in config and config['read_only'] == False:
+    if 'read_only' in config and not config['read_only']:
         interface.delete_failed_uploads(conn)
         garbage_collect(interface, conn, config, 'simple')
 
 
 ###################################################################################
-def write_json_to_remote(config, path : string, data_to_write):
+def write_json_to_remote(path : str, data_to_write):
     meta = {'path' : path, 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-    gc_log = pl_out(json.dumps(data_to_write).encode('utf-8'), meta, config)
+    return pl_out(json.dumps(data_to_write).encode('utf-8'), meta)
 
 
 ###################################################################################
-def streaming_file_upload():
-    print(colored('Uploading: ' + change['path'], 'green'))
+def streaming_file_upload(interface, conn, config, local_file_path, system_path):
 
     #Determine the correct pipeline format to use for this file from the configuration
-    try: matched_plf = next((plf for wildcard, plf in config['file_pipeline'] if fnmatch.fnmatch(change['path'], wildcard)))
+    try: pipeline_format = next((plf for wildcard, plf in config['file_pipeline']
+                                 if fnmatch.fnmatch(system_path, wildcard)))
     except StopIteration: raise 'No pipeline format matches '
 
-    # Get remote file name
-    remote_path = sfs.cpjoin(config['remote_base_path'], change['path'])
+    # Get remote file path
+    remote_file_path = sfs.cpjoin(config['remote_base_path'], system_path)
 
     #----
-    pl_format = pipeline.get_default_pipeline_format()
-    pl_format['chunk_size'] = config['chunk_size']
-    pl_format['format'] = {i : None for i in matched_plf}
-    if 'encrypt' in pl_format['format']: pl_format['format']['encrypt'] = config['crypto']['encrypt_opts']
+    pipeline_configuration = pipeline.get_default_pipeline_format()
+    pipeline_configuration['chunk_size'] = config['chunk_size']
+    pipeline_configuration['format'] = {i : None for i in pipeline_format}
+    if 'encrypt' in pipeline_configuration['format']:
+        pipeline_configuration['format']['encrypt'] = config['crypto']['encrypt_opts']
 
     #-----
     upload = interface.streaming_upload()
     pl     = pipeline.build_pipeline_streaming(upload, 'out')
+    pl.pass_config(config, pipeline.serialise_pipeline_format(pipeline_configuration))
 
-    pl.pass_config(config, pipeline.serialise_pipeline_format(pl_format))
-
-    upload.begin(conn, remote_path)
+    upload.begin(conn, remote_file_path)
 
     try:
-        with open(fspath, 'rb') as fle:
+        with open(local_file_path, 'rb') as fle:
             while True:
                 print('.', end =" ")
 
@@ -125,28 +122,26 @@ def streaming_file_upload():
                 if chunk == b'': break
                 pl.next_chunk(chunk)
             print()
-        res = upload.finish()
+        return upload.finish()
 
-    except IOError: 
-        # If file no longer exists at this stage assume it has been deleted and ignore it
+    # If file no longer exists at this stage assume it has been deleted and ignore it
+    except IOError:
         upload.abort()
-        continue
+        raise
 
 
 ###################################################################################
-def streaming_file_download():
-    remote_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
-
-    download          = interface.streaming_download()
-    header, pl_format = download.begin(conn, remote_path, fle['version_id'])
-    pl                = pipeline.build_pipeline_streaming(download, 'in')
+def streaming_file_download(interface, conn, config, remote_file_path, version_id, local_file_path):
+    download_stream  = interface.streaming_download()
+    header = download_stream.begin(conn, remote_file_path, version_id)[0]
+    pl                = pipeline.build_pipeline_streaming(download_stream, 'in')
     pl.pass_config(config, header)
 
-    sfs.make_dirs_if_dont_exist(dest)
-    with open(dest, 'wb') as fle:
+    sfs.make_dirs_if_dont_exist(local_file_path)
+    with open(local_file_path, 'wb') as fle:
         while True:
             res = pl.next_chunk()
-            if res == None: break
+            if res is None: break
             fle.write(res)
 
 
@@ -156,11 +151,11 @@ def get_remote_manifest_versions(interface, conn, config):
 
 
 ###################################################################################
-def get_remote_manifest_diff(interface, conn, config, version_id = None):
+def get_remote_manifest_diff(config, version_id = None):
     meta = {'path'       : config['remote_manifest_diff_file'],
             'version_id' : version_id,
             'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-    data, meta2 = pl_in(meta, config)
+    data, meta2 = pl_in(meta)
     return { 'version_id'    : version_id,
              'last_modified' : meta2['last_modified'],
              'body'          : json.loads(data)}
@@ -175,7 +170,7 @@ def get_remote_manifest_diffs(interface, conn, config):
         meta = {'path'       : config['remote_manifest_diff_file'],
                 'version_id' : v['VersionId'],
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-        data, meta2 = pl_in(meta, config)
+        data, meta2 = pl_in(meta)
         diffs.append({ 'version_id' : v['VersionId'],
                        'body' : data,
                        'meta' : meta2})
@@ -189,12 +184,12 @@ def rebuild_manifest_from_diffs(versions, version_id = None):
     boot key objects """
 
     # filter these to find the diffs up until the desired version
-    if version_id != None:
-        filtered = []; last = None
+    if version_id is not None:
+        filtered = []
         for vers in versions:
             filtered.append(vers)
             if vers['version_id'] == version_id:
-                last = vers; break
+                break
         else:
             raise KeyError('The given version ID does not exist')
 
@@ -218,7 +213,7 @@ def get_manifest(interface, conn, config):
     try:
         file_manifest = json.loads(sfs.file_get_contents(config['local_manifest_file']))
 
-        try: latest = get_remote_manifest_diff(interface, conn, config)
+        try: latest = get_remote_manifest_diff(config)
         except ValueError: raise ValueError('Local manifest exists but remote missing, suspect tampering')
 
         if file_manifest['latest_remote_diff']['last_modified'] != latest['last_modified'].isoformat():
@@ -291,7 +286,7 @@ def split_files_changes_into_chunks(config, localy_changed_files):
 
 
 ###################################################################################
-def referance_for_deduplication(master_file, duplicate_file):
+def referance_duplicate_to_master(master_file, duplicate_file):
     """ Referances a duplicate file back to a master file """
 
     if 'empty' in master_file:
@@ -336,13 +331,13 @@ def deduplicate_changes_and_create_diff(config, changed_files, file_manifest):
                 duplicate_from_previous_manifest = file_hashes_in_previous_manifest[change['hash']]
 
                 # new duplicates need to be handled specially as the above metadata does not exist yet
-                if not ('empty' in duplicate_from_previous_manifest and 'name_hashed' in it):
+                if not ('empty' in duplicate_from_previous_manifest and 'name_hashed' in duplicate_from_previous_manifest):
                     new_duplicates.append(change)
 
-                new_diff.append(referance_for_deduplication(master_file, duplicate_file))
+                else:
+                    new_diff.append(referance_duplicate_to_master(duplicate_from_previous_manifest, change))
 
-
-            # If the file has not been seen before, 
+            # If the file has not been seen before
             else:
                 need_to_upload.append(change)
                 file_hashes_in_previous_manifest[change['hash']] = change
@@ -355,67 +350,75 @@ def deduplicate_changes_and_create_diff(config, changed_files, file_manifest):
 
             # Delete only removes the file from the manifest, the object needs to remain as it
             # is referenced by prior versions
-            print(colored('Deleting: ' + change['path'], 'red')) 
+            print(colored('Deleting: ' + change['path'], 'red'))
             new_diff.append(change)
 
     return new_diff, need_to_upload, new_duplicates
 
 
 ###################################################################################
-def upload_changed_files(new_diff, need_to_upload, new_duplicates):
+def upload_changed_files(interface, conn, config, file_manifest, new_diff, need_to_upload, new_duplicates):
     # Before we actually upload anything, we store the list of what we are about
     # to upload on the remote in order to garbage collect failed uploads without
     # checking every version of the manifest against all existing objects
     if need_to_upload != []:
-        gc_changes = [change for change in need_to_upload if change['status'] == 'new' or change['status'] == 'changed']
-        write_json_to_remote(config, config['remote_gc_log_file'], gc_changes)
+        gc_changes = [file_to_upload for file_to_upload in need_to_upload
+                      if file_to_upload['status'] in ['new', 'changed']]
+        write_json_to_remote(config['remote_gc_log_file'], gc_changes)
 
     #--
     new_uploads = {}
-    for change in need_to_upload:
-        fspath = sfs.cpjoin(config['base_path'], change['path'])
+    for file_to_upload in need_to_upload:
+        local_file_path = sfs.cpjoin(config['base_path'], file_to_upload['path'])
 
         # Attempt to get the file size to see if the file is empty as s3 does
-        # not allow empty objects, and they need special handling
-        try: stat_result = os.stat(fspath)
-        except OSError: continue 
+        # not allow empty objects, and they need special handling. If we
+        # cannot obtain this the file has probably been deleted so skip it
+        try: local_file_size = os.stat(local_file_path).st_size
+        except OSError: continue
 
         # handle empty files
-        if stat_result.st_size == 0:
-            print(colored('Warning, empty file: ' + change['path'], 'red'))
-            change['empty'] = True
-            new_diff.append(change)
+        if local_file_size == 0:
+            print(colored('Warning, empty file: ' + file_to_upload['path'], 'red'))
+            file_to_upload['empty'] = True
+            new_diff.append(file_to_upload)
 
             # also log to new uploads so duplicates of these files can be referenced correctly below
-            new_uploads[change['hash']] = change
+            new_uploads[file_to_upload['hash']] = file_to_upload
             continue
 
+        # =========================================================
+        print(colored('Uploading: ' + file_to_upload['path'], 'green'))
+
+        upload_metadata = streaming_file_upload(interface, conn, config,
+                                                local_file_path, file_to_upload['path'])
 
         # =========================================================
-        streaming_file_upload()
-
-        # =========================================================
-        change['real_path']   = change['path']
-        change['version_id']  = res['VersionId']
-        new_diff.append(change);
+        file_to_upload['real_path']   = file_to_upload['path']
+        file_to_upload['version_id']  = upload_metadata['VersionId']
+        new_diff.append(file_to_upload)
 
         # also log to new uploads so duplicates of these files can be referenced correctly below
-        new_uploads[change['hash']] = change
+        new_uploads[file_to_upload['hash']] = file_to_upload
 
     # process duplicates of new files
     for duplicate_file in new_duplicates:
-        master_file = new_uploads[change['hash']]
-        new_diff.append(referance_for_deduplication(master_file, duplicate_file))
+        master_file = new_uploads[duplicate_file['hash']]
+        new_diff.append(referance_duplicate_to_master(master_file, duplicate_file))
 
     # upload the diff
-    meta2 = write_json_to_remote(config, config['remote_manifest_diff_file'], new_diff)
+    upload_metadata = write_json_to_remote(config['remote_manifest_diff_file'], new_diff)
 
     # for some reason have to get the key again to obtain it's time stamp
-    k = interface.get_object(conn, config['remote_manifest_diff_file'], version_id = meta2['version_id'])
+    last_uploaded_diff = interface.get_object(conn, config['remote_manifest_diff_file'],
+                                              version_id = upload_metadata['version_id'])
 
-    # apply the diff to the local manifest and update it
+    # apply the diff to the local manifest
     file_manifest['files'] = sfs.apply_diffs([new_diff], file_manifest['files'])
-    file_manifest['latest_remote_diff'] = {'version_id' : k['version_id'], 'last_modified' : k['last_modified'].isoformat()}
+    file_manifest['latest_remote_diff'] = {
+        'version_id' : last_uploaded_diff['version_id'],
+        'last_modified' : last_uploaded_diff['last_modified'].isoformat()
+    }
 
     return file_manifest
 
@@ -425,7 +428,7 @@ def backup(interface, conn, config):
     """ Compares the current state of the local filesystem with a historic state
     stored in a manifest, and uploads the differances to the remote store """
 
-    if 'read_only' in config and config['read_only'] == True: raise Exception('read only')
+    if 'read_only' in config and config['read_only']: raise Exception('read only')
 
     #Local lock for sanity checking
     lockfile_path = config['local_lock_file']
@@ -434,7 +437,7 @@ def backup(interface, conn, config):
     except IOError: raise SystemExit('Locked by another process')
 
     # Scan the local filesystem to obtain its current state
-    visit_mountpoints = 'visit_mountpoints' in config and config['visit_mountpoints'] == True
+    visit_mountpoints = 'visit_mountpoints' in config and config['visit_mountpoints']
 
     file_manifest = get_manifest(interface, conn, config)
     current_state, errors = sfs.get_file_list(config['base_path'], config['ignore_files'],
@@ -445,7 +448,7 @@ def backup(interface, conn, config):
     #errors        = sfs.filter_file_list([{'path' : e} for e in errors], config['ignore_files'])
 
     if errors != []:
-        for e in errors: print(colored('Could not read ' + e['path'], 'red')) 
+        for e in errors: print(colored('Could not read ' + e['path'], 'red'))
         print('--------------')
 
     #Find changed files
@@ -459,7 +462,7 @@ def backup(interface, conn, config):
 
         new_diff, need_to_upload, new_duplicates = deduplicate_changes_and_create_diff(config, changed_files, file_manifest)
 
-        file_manifest = upload_changed_files(new_diff, need_to_upload, new_duplicates)
+        file_manifest = upload_changed_files(interface, conn, config, file_manifest, new_diff, need_to_upload, new_duplicates)
         write_local_manifest(config, file_manifest)
 
         # minimum resolution on s3 timestamps is 1 second, make sure delete marker comes last
@@ -480,7 +483,7 @@ def backup(interface, conn, config):
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
     """ Download files from a specified version """
 
-    if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
+    if 'write_only' in config and config['write_only']: raise Exception('write only')
 
     versions = get_remote_manifest_diffs(interface, conn, config)
     file_manifest = rebuild_manifest_from_diffs(versions, version_id)
@@ -488,7 +491,7 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
     file_manifest['files'] = sorted(file_manifest['files'],key=lambda fle:
         (os.path.dirname(fle['path']), os.path.basename(fle['path'])))
 
-    if ignore_filters != None:
+    if ignore_filters is not None:
         for fil in ignore_filters:
             file_manifest['files'] = sfs.filter_f_list(file_manifest['files'], fil)
 
@@ -500,11 +503,11 @@ def download(interface, conn, config, version_id, target_directory, ignore_filte
 
         if 'empty' in fle:
             sfs.make_dirs_if_dont_exist(local_file_path)
-            handle = open(dest, 'w').close()
+            open(local_file_path, 'w').close()
         else:
-            remote_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
+            remote_file_path = sfs.cpjoin(config['remote_base_path'], fle['real_path'])
             sfs.make_dirs_if_dont_exist(local_file_path)
-            streaming_file_download(remote_path, local_file_path)
+            streaming_file_download(interface, conn, config, remote_file_path, fle['version_id'], local_file_path)
 
 
 ############################################################################################
@@ -521,7 +524,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
     caused by misuse of the application.
     """
 
-    if 'read_only' in config and config['read_only'] == True: return
+    if 'read_only' in config and config['read_only']: return
 
     missing_objects = garbage_objects = []
 
@@ -529,7 +532,7 @@ def garbage_collect(interface, conn, config, mode='simple'):
         meta = {'path'       : config['remote_gc_log_file'],
                 'version_id' : None,
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
-        try: data, gc_log_meta = pl_in(meta, config)
+        try: data, gc_log_meta = pl_in(meta)
         except ValueError: return
 
         gc_log = json.loads(data)
@@ -553,12 +556,12 @@ def garbage_collect(interface, conn, config, mode='simple'):
 
                 # As empty files don't actually get stored on the remote, we don't need to do anything
                 # to clean them up if we find one in the GC log.
-                if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty'] == True:
+                if 'empty' in manifest_index[item['path']] and manifest_index[item['path']]['empty']:
                     pass
 
                 # There is a file listed in the local manifest which should be on the remote, but
                 # is missing for some reason
-                elif latest_version == None:
+                elif latest_version is None:
                     print('object missing on remote')
                     print(remote_path)
 
@@ -585,10 +588,10 @@ def garbage_collect(interface, conn, config, mode='simple'):
     # else append them onto the garbage object log.
 
     is_write_only = False
-    if 'read_only' in config and config['read_only'] == True:
+    if 'read_only' in config and config['read_only']:
         is_write_only = True
 
-    if 'allow_delete_versions' in config and config['allow_delete_versions'] == True:
+    if 'allow_delete_versions' in config and config['allow_delete_versions']:
         is_write_only = True
 
     if not is_write_only:
@@ -603,14 +606,14 @@ def garbage_collect(interface, conn, config, mode='simple'):
                 'version_id' : None,
                 'header'     : pipeline.serialise_pipeline_format(meta_pl_format)}
         try:
-            data, gc_log_meta = pl_in(meta, config)
+            data, gc_log_meta = pl_in(meta)
             log = json.loads(data)
         except ValueError:
             log = []
 
         log.append(garbage_objects)
-        meta = {'path' : config['remote_garbage_object_log_file'], 'header' : pipeline.serialise_pipeline_format(meta_pl_format)}
-        meta2 = pl_out(json.dumps(log).encode('utf-8'), meta, config)
+
+        write_json_to_remote(config['remote_garbage_object_log_file'], log)
 
     # Finally delete the GC log
     interface.delete_object(conn, config['remote_gc_log_file'])
@@ -643,6 +646,5 @@ def varify_manifest(interface, conn, config):
         if k not in all_objects: missing_objects.append(k)
         else: del all_objects[k]
 
-    garbage_objects = [o for o in all_objects.keys()]
+    garbage_objects = all_objects.keys()
     return missing_objects, garbage_objects
-
