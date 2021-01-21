@@ -7,7 +7,7 @@ def readme():
 
 setup(
     name='rrbackup',
-    version='0.3',
+    version='1.0',
     description='Versioning backup system',
     long_description=readme(),
     classifiers=[
