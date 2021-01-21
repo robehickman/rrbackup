@@ -1,5 +1,9 @@
 #!/usr/bin/python
-import sys, os, dateutil, pprint, json, copy, pysodium
+import sys
+import os
+import json
+import copy
+import pysodium
 import rrbackup.fsutil as sfs
 import rrbackup.core as core
 import rrbackup.pipeline as pipeline
@@ -45,7 +49,9 @@ else:
         if len(args) < 2: raise SystemExit('Expected argument following --c to be a path to configuration file, nothing found.')
         args.pop(0); conf_file = args.pop(0)
 
-    parsed_config = json.loads(sfs.file_get_contents(conf_file))
+    try:    parsed_config = json.loads(sfs.file_get_contents(conf_file))
+    except FileNotFoundError: raise SystemExit(f"Configuration file {conf_file} not found.")
+
     core.validate_config(parsed_config)
 
     config = core.merge_config(config, parsed_config)
@@ -62,7 +68,8 @@ else:
 
     #++++++++++++++++++++++++
     elif args[0] == 'list_versions':
-        if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
+        if 'write_only' in config and config['write_only']:
+            SystemExit('Write only')
 
         versions = core.get_remote_manifest_versions(interface, conn, config)
         print('\nDate and time         : Version ID\n')
@@ -73,10 +80,11 @@ else:
 
     #++++++++++++++++++++++++
     elif args[0] == 'list_files':
-        if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
+        if 'write_only' in config and config['write_only']:
+            raise SystemExit('Write only')
 
         if len(args) < 2:
-            print("You must provide a Version ID, see help (-h)"); quit()
+            raise SystemExit("You must provide a Version ID, see help (-h)")
 
         versions = core.get_remote_manifest_diffs(interface, conn, config)
 
@@ -92,15 +100,14 @@ else:
 
     #++++++++++++++++++++++++
     elif args[0] == 'list_changes':
-        if 'write_only' in config and config['write_only'] == True: raise Exception('write only')
+        if 'write_only' in config and config['write_only']:
+            raise SystemExit('Write only')
 
         if len(args) < 2:
-            print("You must provide a Version ID, see help (-h)"); quit()
+            raise SystemExit("You must provide a Version ID, see help (-h)")
 
-        diff = core.get_remote_manifest_diff(interface, conn, config, args[1])['body']
+        diff = core.get_remote_manifest_diff(interface, conn, config, args[1])['body']  # pylint: disable=too-many-function-args 
 
-        import pprint
-        pprint.pprint(diff)
         for change in diff:
             if change['status'] == 'moved':
                 print(change['status'].capitalize() + ': ' + change['moved_from'])
@@ -113,16 +120,16 @@ else:
     #++++++++++++++++++++++++
     elif args[0] == 'download':
         if len(args) < 2:
-            print("You must provide a Version ID, see help (-h)"); quit()
+            raise SystemExit("You must provide a Version ID, see help (-h)")
 
         if len(args) < 3:
-            print("You must provide a target directory, see help (-h)"); quit()
+            raise SystemExit("You must provide a target directory, see help (-h)")
 
         ignore_filters = None
         if len(args) > 3:
             ignore_filters = sfs.file_get_contents(args[3])
             ignore_filters = ignore_filters.splitlines()
-            
+
         core.download(interface, conn, config, args[1], args[2], ignore_filters)
 
     #++++++++++++++++++++++++
@@ -134,4 +141,4 @@ else:
         core.clean_gc_log(interface, conn, config)
 
     else:
-        print('Unknown command')
+        raise SystemExit("Unknown command")

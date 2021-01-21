@@ -39,10 +39,10 @@ def default_config(interface):
 
 ###################################################################################
 def validate_config(parsed_config):
-    if 'meta_pipeline' in parsed_config and not isinstance(parsed_config['meta_pipeline'], list): raise ValueError('meta_pipeline in conf file mist be a list')
-    if 'file_pipeline' in parsed_config and not isinstance(parsed_config['file_pipeline'], list): raise ValueError('file_pipeline in conf file mist be a list')
-    if 'ignore_files'  in parsed_config and not isinstance(parsed_config['ignore_files'], list):  raise ValueError('ignore_files in conf file mist be a list')
-    if 'skip_delete'   in parsed_config and not isinstance(parsed_config['skip_delete'], list):   raise ValueError('skip_delete in conf file mist be a list')
+    if 'meta_pipeline' in parsed_config and not isinstance(parsed_config['meta_pipeline'], list): raise SystemExit('meta_pipeline in conf file mist be a list')
+    if 'file_pipeline' in parsed_config and not isinstance(parsed_config['file_pipeline'], list): raise SystemExit('file_pipeline in conf file mist be a list')
+    if 'ignore_files'  in parsed_config and not isinstance(parsed_config['ignore_files'], list):  raise SystemExit('ignore_files in conf file mist be a list')
+    if 'skip_delete'   in parsed_config and not isinstance(parsed_config['skip_delete'], list):   raise SystemExit('skip_delete in conf file mist be a list')
 
 ###################################################################################
 def merge_config(config, parsed_config):
@@ -106,7 +106,7 @@ def streaming_file_upload(interface, conn, config, local_file_path, system_path)
     #Determine the correct pipeline format to use for this file from the configuration
     try: pipeline_format = next((plf for wildcard, plf in config['file_pipeline']
                                  if fnmatch.fnmatch(system_path, wildcard)))
-    except StopIteration: raise 'No pipeline format matches '
+    except StopIteration: raise SystemExit('No pipeline format matches ')
 
     # Get remote file path
     remote_file_path = sfs.cpjoin(config['remote_base_path'], system_path)
@@ -203,7 +203,7 @@ def rebuild_manifest_from_diffs(versions, version_id = None):
             if vers['version_id'] == version_id:
                 break
         else:
-            raise KeyError('The given version ID does not exist')
+            raise SystemExit('The given version ID ' + version_id + ' does not exist')
 
         versions = filtered
 
@@ -226,7 +226,7 @@ def get_manifest(interface, conn, config):
         file_manifest = json.loads(sfs.file_get_contents(config['local_manifest_file']))
 
         try: latest = get_remote_manifest_diff(config)
-        except ValueError: raise ValueError('Local manifest exists but remote missing, suspect tampering')
+        except ValueError: raise SystemExit('Local manifest exists but remote missing, suspect tampering')
 
         if file_manifest['latest_remote_diff']['last_modified'] != latest['last_modified'].isoformat():
             # If the client where to crash between writing the remote diff and local manifest the remote manifest
@@ -451,7 +451,7 @@ def backup(interface, conn, config):
     """ Compares the current state of the local filesystem with a historic state
     stored in a manifest, and uploads the differances to the remote store """
 
-    if 'read_only' in config and config['read_only']: raise Exception('read only')
+    if 'read_only' in config and config['read_only']: raise SystemExit('read only')
 
     #Local lock for sanity checking
     lockfile_path = config['local_lock_file']
@@ -507,7 +507,7 @@ def backup(interface, conn, config):
 def download(interface, conn, config, version_id, target_directory, ignore_filters = None):
     """ Download files from a specified version """
 
-    if 'write_only' in config and config['write_only']: raise Exception('write only')
+    if 'write_only' in config and config['write_only']: raise SystemExit('write only')
 
     versions = get_remote_manifest_diffs(interface, conn, config)
     file_manifest = rebuild_manifest_from_diffs(versions, version_id)
@@ -574,10 +574,10 @@ def garbage_collect(interface, conn, config, mode='simple'):
     #---------------
     elif mode == 'full':
         missing_objects, garbage_objects = varify_manifest(interface, conn, config)
-        if missing_objects != []: raise ValueError('Missing objects found')
+        if missing_objects != []: raise SystemExit('Missing objects found')
 
     #---------------
-    else: raise ValueError('Invalid GC mode')
+    else: raise SystemExit('Invalid GC mode')
 
 
     #---------------
