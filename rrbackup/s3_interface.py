@@ -97,19 +97,53 @@ def delete_object(conn, key, version_id=None):
     if version_id is None: return conn['client'].delete_object(Bucket=conn['bucket'], Key=key)
     else:                  return conn['client'].delete_object(Bucket=conn['bucket'], Key=key, VersionId=version_id)
 
+
+
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def list_versions(conn, fle = None):
-    if fle is None: version_list = conn['client'].list_object_versions(Bucket=conn['bucket'])
-    else: version_list = conn['client'].list_object_versions(Bucket=conn['bucket'], Prefix=fle)
 
-    if version_list['IsTruncated']: raise Exception('truncated result')
-    if 'Versions' not in version_list: return []
+    if fle is None:
+        result = conn['client'].list_object_versions(Bucket=conn['bucket'])
+    else:
+        result = conn['client'].list_object_versions(Bucket=conn['bucket'], Prefix=fle)
 
-    version_list = version_list['Versions']
+    if 'Versions' not in result:
+        return []
 
+
+    # ======================
+    version_list = result['Versions']
+
+
+    # If the result was truncated, keep reading untill we have got everything
+    if result['IsTruncated']:
+
+        while True:
+            if fle is None:
+                result = conn['client'].list_object_versions(Bucket=conn['bucket'],
+                                                             KeyMarker=result['NextKeyMarker'],
+                                                             VersionIdMarker=result['NextVersionIdMarker'])
+            else:
+                result = conn['client'].list_object_versions(Bucket=conn['bucket'],
+                                                             Prefix=fle,
+                                                             KeyMarker=result['NextKeyMarker'],
+                                                             VersionIdMarker=result['NextVersionIdMarker'])
+
+            if 'Versions' not in result:
+                break
+
+            # ==================
+            version_list += result['Versions']
+
+            if not result['IsTruncated']:
+                break
+
+
+    # Sort result by date
     version_list = sorted(version_list, key=lambda v: v['LastModified'])
 
     return version_list
+
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++==
 def write_file(conn, data, meta, config): # pylint: disable=unused-argument
